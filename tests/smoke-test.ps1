@@ -62,6 +62,26 @@ $bad = $signupA.Clone(); $bad.slug = "Bad Slug $suffix"; $bad.adminPassword = 's
 $r = Invoke-Api POST '/api/v1/tenants' $bad
 Check 'invalid signup payload -> 400' ($r.Status -eq 400)
 
+Write-Host "`nAPI docs (OpenAPI / Swagger)"
+$r = Invoke-Api GET '/api/docs-json'
+Check 'GET /api/docs-json -> OpenAPI 3 document' ($r.Status -eq 200 -and "$($r.Body.openapi)".StartsWith('3.')) "(got $($r.Status))"
+$ops = foreach ($p in $r.Body.paths.PSObject.Properties) {
+    foreach ($m in $p.Value.PSObject.Properties) { [pscustomobject]@{ Name = "$($m.Name.ToUpper()) $($p.Name)"; Op = $m.Value } }
+}
+Check 'documents at least 30 operations' (@($ops).Count -ge 30) "(got $(@($ops).Count))"
+$noSummary = @($ops | Where-Object { -not $_.Op.summary } | ForEach-Object Name)
+Check 'every operation has a summary' ($noSummary.Count -eq 0) "(missing: $($noSummary -join ', '))"
+$noTag = @($ops | Where-Object { -not $_.Op.tags } | ForEach-Object Name)
+Check 'every operation has a tag' ($noTag.Count -eq 0) "(missing: $($noTag -join ', '))"
+Check 'bearer JWT security scheme' ($r.Body.components.securitySchemes.bearer.scheme -eq 'bearer')
+$secured = @($ops | Where-Object { $_.Op.security })
+$no401 = @($secured | Where-Object { -not $_.Op.responses.'401' } | ForEach-Object Name)
+Check 'every secured operation documents 401' ($secured.Count -ge 20 -and $no401.Count -eq 0) "(secured $($secured.Count); missing 401: $($no401 -join ', '))"
+Check 'Admin-only void documents 403' ($null -ne $r.Body.paths.'/api/v1/journal-entries/{id}/void'.post.responses.'403')
+Check 'DTO schema carries validation + examples' ($r.Body.components.schemas.CreateJournalEntryDto.properties.entryDate.example -eq '2026-09-05' -and $r.Body.components.schemas.CreateJournalEntryDto.properties.lines.minItems -eq 2)
+$ui = Invoke-WebRequest -Uri "$BaseUrl/api/docs" -UseBasicParsing
+Check 'Swagger UI served at /api/docs' ($ui.StatusCode -eq 200 -and $ui.Content -match 'swagger-ui')
+
 Write-Host "`n9.2 Login"
 $r = Invoke-Api POST '/api/v1/auth/login' @{ email = 'admin@testcompany.com'; password = 'SecurePass123'; tenantId = $tenantA }
 Check 'login with tenantId -> 200' ($r.Status -eq 200 -and $r.Body.accessToken) "(got $($r.Status))"

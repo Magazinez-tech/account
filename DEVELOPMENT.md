@@ -28,6 +28,16 @@ npm run typeorm migration:run
 ## API Server
 - URL: http://localhost:3000
 - API Base: http://localhost:3000/api/v1
+- API docs: http://localhost:3000/api/docs (OpenAPI JSON: `/api/docs-json`)
+
+### Documenting endpoints
+The Nest CLI swagger plugin (`nest-cli.json`) reads the code at build time:
+- Controllers live in `*.module.ts` files (`controllerFileNameSuffix`); the JSDoc above a handler becomes its summary.
+- DTOs live in `*.dto.ts`; property types and class-validator rules become the schema, JSDoc becomes the
+  description, and `@example` tags become examples. Fields validated with `@IsIn` need `@ApiProperty({ enum })`.
+- Use `@Authenticated()` (not `UseGuards`) on protected controllers: it applies the JWT and role guards and
+  documents bearer auth, 401 and 402. `@Roles('Admin')` also documents the 403.
+- Restart `npm run start:dev` after changing `nest-cli.json`; the watcher does not reload it.
 
 ## Billing (dev)
 - `.env`: `PAYMENT_PROVIDER=mock` and `APP_URL=http://localhost:5173` (defaults if unset).

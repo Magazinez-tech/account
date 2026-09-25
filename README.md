@@ -17,6 +17,10 @@ See [DEVELOPMENT.md](DEVELOPMENT.md) for setup and [TASKS.md](TASKS.md) for the 
 
 ## API (base `http://localhost:3000/api/v1`)
 
+Interactive docs: **http://localhost:3000/api/docs** (Swagger UI; click *Authorize* and paste an `accessToken`).
+The OpenAPI 3 document is at `/api/docs-json`. Both are generated from the controllers, DTO validation rules and
+JSDoc, so they stay in sync with the code; they are off in production unless `SWAGGER_ENABLED=true`.
+
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
 | GET | `/health` (no prefix) | – | Liveness + DB check |

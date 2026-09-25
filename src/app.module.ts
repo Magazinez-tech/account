@@ -1,6 +1,7 @@
 import { Controller, Get, Module, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
+import { ApiServiceUnavailableResponse, ApiTags } from '@nestjs/swagger';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { AccountingModule } from './accounting/accounting.module';
@@ -11,11 +12,14 @@ import { TenantsModule } from './tenants/tenants.module';
 import { UsersModule } from './users/users.module';
 import { BillingModule } from './billing/billing.module';
 
+@ApiTags('Health')
 @Controller('health')
 export class HealthController {
   constructor(private readonly dataSource: DataSource) {}
 
+  /** Liveness and database check (served at /health, outside /api/v1). */
   @Get()
+  @ApiServiceUnavailableResponse({ description: 'Database unreachable' })
   async check() {
     try {
       await this.dataSource.query('SELECT 1');
