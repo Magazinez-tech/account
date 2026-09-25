@@ -1,6 +1,8 @@
+import { useEffect } from 'react';
 import { BrowserRouter, Link, Navigate, NavLink, Outlet, Route, Routes, useLocation } from 'react-router-dom';
 import type { BillingStatus, SubscriptionStatus, TenantDetail } from './api';
 import { AuthProvider, isAdmin, useAuth, useMe } from './auth';
+import { BILLING_CHANGED } from './billing-events';
 import AcceptInvitePage from './pages/AcceptInvitePage';
 import AccountsPage from './pages/AccountsPage';
 import BalanceSheetPage from './pages/BalanceSheetPage';
@@ -76,7 +78,13 @@ function Layout() {
   const { logout } = useAuth();
   const nav = NAV.filter((n) => !n.adminOnly || isAdmin(me));
   const { data: tenant } = useApi<TenantDetail>(`/tenants/${me.tenantId}`);
-  const { data: billing } = useApi<BillingStatus>('/billing/status');
+  const { data: billing, reload: reloadBilling } = useApi<BillingStatus>('/billing/status');
+
+  // Pages that change the subscription without a full page load (PromptPay QR, cancel/resume) announce it.
+  useEffect(() => {
+    window.addEventListener(BILLING_CHANGED, reloadBilling);
+    return () => window.removeEventListener(BILLING_CHANGED, reloadBilling);
+  }, [reloadBilling]);
 
   return (
     <div className="min-h-screen">

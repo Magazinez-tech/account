@@ -157,24 +157,41 @@ try {
   await page.getByRole('heading', { name: 'สมุดรายวันทั่วไป' }).waitFor();
   check('login works', true);
 
-  // Billing: trial -> failed payment -> paid Pro, through the mock gateway
+  // Billing: trial -> failed payment -> paid Pro, through whichever gateway the API runs:
+  // mock (hosted page) or Omise (PromptPay QR on the billing page, test-mode simulate buttons).
   await page.getByText(/^ทดลองใช้ Starter · เหลือ 1[34] วัน$/).waitFor();
   check('header shows trial days left', true);
   await page.getByRole('link', { name: 'การชำระเงิน' }).click();
   await page.getByRole('heading', { name: 'แพ็กเกจ', exact: true }).waitFor();
   check('billing page lists 3 plans with VAT', await eventually(async () => (await page.getByText(/\+ VAT 7%/).count()) === 3));
-  await page.getByRole('button', { name: 'เปลี่ยนเป็นแพ็กเกจนี้' }).first().click(); // Pro (plans sorted by price)
-  await page.getByText('Mock Payment Gateway').waitFor();
-  // The page title renders before the charge loads, so wait for the amount itself.
-  check('redirected to the gateway with the VAT-inclusive amount', await seen(page.getByText('845.30')));
-  await page.screenshot({ path: `${shots}07-mock-gateway.png` });
-  await page.getByRole('button', { name: 'จำลองการชำระไม่สำเร็จ' }).click();
+
+  /** Picks Pro and pays with the given outcome; returns which gateway handled it. */
+  async function payForPro(outcome) {
+    await page.getByRole('button', { name: 'เปลี่ยนเป็นแพ็กเกจนี้' }).first().click(); // Pro (plans sorted by price)
+    const mockPage = page.getByText('Mock Payment Gateway');
+    const qrPanel = page.getByRole('heading', { name: 'สแกนจ่ายด้วย PromptPay' });
+    await mockPage.or(qrPanel).first().waitFor();
+    if (await mockPage.isVisible()) {
+      // The page title renders before the charge loads, so wait for the amount itself.
+      check('mock: redirected to the gateway with the VAT-inclusive amount', await seen(page.getByText('845.30')));
+      await page.screenshot({ path: `${shots}07-gateway.png` });
+      await page.getByRole('button', { name: outcome === 'succeeded' ? 'ชำระเงินสำเร็จ' : 'จำลองการชำระไม่สำเร็จ' }).click();
+      return 'mock';
+    }
+    check('omise: PromptPay QR shown with the VAT-inclusive amount', await seen(page.getByText('845.30 บาท')));
+    check('omise: QR image loaded', await eventually(() => page.getByRole('img', { name: /PromptPay QR/ }).evaluate((img) => img.complete && img.naturalWidth > 0)));
+    await page.screenshot({ path: `${shots}07-gateway.png` });
+    await page.getByRole('button', { name: outcome === 'succeeded' ? 'จำลอง: ชำระสำเร็จ' : 'จำลอง: ชำระไม่สำเร็จ' }).click();
+    return 'omise';
+  }
+
+  const gatewayUsed = await payForPro('failed');
+  console.log(`  (payment gateway: ${gatewayUsed})`);
   await page.getByText(/ชำระเงินใบแจ้งหนี้ INV-000001 ไม่สำเร็จ/).waitFor();
-  check('declined payment reported on return', true);
-  await page.getByRole('button', { name: 'เปลี่ยนเป็นแพ็กเกจนี้' }).first().click();
-  await page.getByRole('button', { name: 'ชำระเงินสำเร็จ' }).click();
+  check('declined payment reported', true);
+  await payForPro('succeeded');
   await page.getByText(/ชำระเงินใบแจ้งหนี้ INV-000002 สำเร็จ/).waitFor();
-  check('successful payment reported on return', true);
+  check('successful payment reported', true);
   check(
     'Pro is now the current plan and active',
     (await eventually(async () => (await page.getByText('ปัจจุบัน', { exact: true }).count()) === 1)) &&

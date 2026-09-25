@@ -42,6 +42,23 @@ The Nest CLI swagger plugin (`nest-cli.json`) reads the code at build time:
 ## Billing (dev)
 - `.env`: `PAYMENT_PROVIDER=mock` and `APP_URL=http://localhost:5173` (defaults if unset).
 - Checkout sends you to `/billing/mock-checkout/<chargeId>` in the web app; choose success or failure there.
+
+### Omise (PromptPay) without an Omise account
+```powershell
+npm run fake-omise                     # fake Omise API on :4010, webhooks to :3000
+# .env: PAYMENT_PROVIDER=omise, OMISE_SECRET_KEY=skey_test_local, OMISE_API_URL=http://localhost:4010
+npm run start:dev                      # restart the API after changing .env
+```
+Checkout then shows a PromptPay QR on the billing page with *simulate* buttons (test keys only). The page
+polls `POST /billing/invoices/:id/refresh`, so payments settle even when the webhook can't reach you.
+
+### Switching to real Omise (test mode)
+1. Create an account at dashboard.omise.co and copy the **test secret key** (`skey_test_...`) into `.env`
+   (never commit it). Remove `OMISE_API_URL` so the default `https://api.omise.co` is used.
+2. Webhooks: in the Omise dashboard set `https://<public API host>/api/v1/billing/webhooks/omise`
+   (for local testing expose port 3000 with a tunnel such as ngrok). Without it, the page's polling still works.
+3. The simulate buttons use Omise's own test endpoints (`mark_as_paid` / `mark_as_failed`); they disappear
+   with a live key (`skey_live_...`).
 - To test expiry, move dates into the past, e.g.
   `UPDATE subscriptions SET trial_ends_at = now() - interval '1 day' WHERE tenant_id = '...';`
   The tenant turns read-only immediately (status is derived from dates; there is no scheduler).

@@ -10,7 +10,7 @@ Multi-tenant double-entry accounting API built with NestJS, TypeORM and PostgreS
 - **Auth:** JWT access and refresh tokens, bcrypt password hashes.
 - **Roles:** `Admin` has full access. `User` can read everything and post journal entries, but gets 403 on creating accounts, voiding entries and managing users. `JwtAuthGuard` loads the user's active flag and roles from the database on every request, so deactivation and role changes apply immediately, without waiting for the token to expire.
 - **Users:** admins invite people with a one-time link (7-day expiry, only a SHA-256 hash is stored), change roles, and deactivate or reactivate users. The last active Admin cannot be demoted or deactivated.
-- **Billing:** plans are priced before VAT; checkout issues an invoice (VAT from `system_config.vat_rate`) and sends the admin to the payment gateway, whose result (webhook) marks it paid and extends the subscription by a month. Once a trial ends or a paid period lapses the tenant becomes read-only: reads work, writes return 402 except billing. Plan `max_users` caps active users plus open invitations. Only a mock gateway exists so far (`PAYMENT_PROVIDER=mock`); real providers implement `PaymentGateway`.
+- **Billing:** plans are priced before VAT; checkout issues an invoice (VAT from `system_config.vat_rate`) and sends the admin to the payment gateway, whose result (webhook) marks it paid and extends the subscription by a month. Once a trial ends or a paid period lapses the tenant becomes read-only: reads work, writes return 402 except billing. Plan `max_users` caps active users plus open invitations. Gateways: `mock` (hosted mock page, default) and `omise` (PromptPay QR through Omise / Opn Payments; the webhook payload is never trusted, the charge is re-read from Omise). Development and CI run the Omise integration against `tools/fake-omise.cjs`.
 - **Accounting:** chart of accounts, balanced journal entries (debits must equal credits, amounts summed in satang), voiding instead of deleting, a trial balance, an income statement for any period, and a balance sheet as of any date. Year-end closing posts a closing entry that moves revenue and expenses into 3100 retained earnings and locks the fiscal year (no new or voided entries dated in it); the latest closed year can be reopened. Profit not yet closed shows on the balance sheet as current earnings.
 - **Web app ([web/](web/)):** React + Tailwind UI in Thai for signup, login, chart of accounts, journal entry (live debit/credit balance check), journal list with void, trial balance, income statement, balance sheet, year-end closing, user management with invite links, and billing (plans, invoices, trial/read-only banner, mock checkout page).
 
@@ -54,6 +54,9 @@ JSDoc, so they stay in sync with the code; they are off in production unless `SW
 | GET | `/billing` | JWT, Admin | Status, plans with VAT, invoice history |
 | POST | `/billing/checkout` | JWT, Admin | `{ planCode }` → open invoice + gateway `redirectUrl` |
 | POST | `/billing/cancel`, `/billing/resume` | JWT, Admin | Stop / restart renewal (access continues to period end) |
+| POST | `/billing/invoices/:id/refresh` | JWT, Admin | Re-check the invoice's payment with the gateway (QR polling) |
+| POST | `/billing/invoices/:id/simulate` | JWT, Admin | Test mode only: `{ outcome }` via Omise `mark_as_paid` / `mark_as_failed` |
+| POST | `/billing/webhooks/omise` | – | Omise events; the charge is re-fetched from Omise before settling |
 | GET | `/billing/mock/charges/:chargeId` | – | Mock gateway only: charge details |
 | POST | `/billing/mock/charges/:chargeId/complete` | – | Mock gateway only: `{ outcome: succeeded \| failed }`, stands in for the webhook |
 

@@ -15,7 +15,8 @@
     "migration:revert": "npm run typeorm migration:revert",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
     "test:watch": "node --experimental-vm-modules node_modules/jest/bin/jest.js --watch",
-    "test:smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File tests/smoke-test.ps1"
+    "test:smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File tests/smoke-test.ps1",
+    "fake-omise": "node tools/fake-omise.cjs"
   },
   "dependencies": {
     "@nestjs/common": "^12.1.0",

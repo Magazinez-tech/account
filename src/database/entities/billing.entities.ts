@@ -159,6 +159,17 @@ export class Payment {
   @Column({ name: 'failure_message', type: 'text', nullable: true })
   failureMessage: string | null;
 
+  /** What the customer was asked to do: redirect to a hosted page, or scan a QR. */
+  @Column({ name: 'action_type', type: 'varchar', nullable: true })
+  actionType: 'redirect' | 'qr' | null;
+
+  /** Redirect URL or QR image URL. */
+  @Column({ name: 'action_url', type: 'text', nullable: true })
+  actionUrl: string | null;
+
+  @Column({ name: 'expires_at', type: 'timestamptz', nullable: true })
+  expiresAt: Date | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 

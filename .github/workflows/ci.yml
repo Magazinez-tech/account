@@ -46,9 +46,14 @@ jobs:
       - run: npm run build
 
   integration:
-    name: Integration · API smoke + browser E2E
+    name: Integration (${{ matrix.payment-gateway }}) · API smoke + browser E2E
     needs: [api, web]
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # mock: hosted mock checkout page. omise: real Omise integration against tools/fake-omise.cjs (PromptPay QR).
+        payment-gateway: [mock, omise]
     services:
       postgres:
         image: postgres:16
@@ -70,7 +75,9 @@ jobs:
       DB_DATABASE: accounting_saas_dev
       # Throwaway secret: the CI database and tokens only live for this job.
       JWT_SECRET: ci-only-jwt-secret-0123456789abcdef0123456789
-      PAYMENT_PROVIDER: mock
+      PAYMENT_PROVIDER: ${{ matrix.payment-gateway }}
+      OMISE_SECRET_KEY: skey_test_ci
+      OMISE_API_URL: http://localhost:4010
       APP_URL: http://localhost:5173
       PGPASSWORD: postgres # psql in the smoke test (RLS and expiry checks)
       E2E_BROWSER: chrome # preinstalled on ubuntu runners
@@ -91,6 +98,12 @@ jobs:
         run: npm run migration:run
       - name: Create least-privilege login role
         run: psql -h localhost -U postgres -d accounting_saas_dev -v login=accounting_app -v password=ci-app-password -f db/create-app-login.sql
+      - name: Start fake Omise
+        if: matrix.payment-gateway == 'omise'
+        env:
+          PORT: 4010
+          WEBHOOK_URL: http://localhost:3000/api/v1/billing/webhooks/omise
+        run: nohup node tools/fake-omise.cjs > omise.log 2>&1 &
       - name: Build and start API (production mode, as accounting_app)
         # NODE_ENV=production makes the API refuse superuser/BYPASSRLS roles and restrict CORS to APP_URL,
         # so this job proves the production setup, with the real rate limits.
@@ -126,9 +139,10 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: integration-artifacts
+          name: integration-artifacts-${{ matrix.payment-gateway }}
           path: |
             web/e2e/screenshots
             api.log
             web.log
+            omise.log
           retention-days: 7

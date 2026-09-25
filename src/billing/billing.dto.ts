@@ -23,3 +23,10 @@ export class MockCompleteDto {
   @MaxLength(200)
   failureMessage?: string;
 }
+
+export class SimulatePaymentDto {
+  /** Test mode only: the result to make the gateway report for the invoice's pending charge. */
+  @ApiProperty({ enum: ['succeeded', 'failed'], example: 'succeeded' })
+  @IsIn(['succeeded', 'failed'])
+  outcome: 'succeeded' | 'failed';
+}

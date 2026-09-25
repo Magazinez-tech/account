@@ -147,8 +147,12 @@ export interface BillingStatus {
   cancelAtPeriodEnd: boolean;
 }
 
+export type PaymentAction = { type: 'redirect'; url: string } | { type: 'qr'; imageUrl: string; expiresAt: string | null };
+
 export interface BillingOverview extends BillingStatus {
   vatRate: number;
+  /** canSimulate: test-mode gateway, payments can be completed without a real bank app. */
+  gateway: { provider: string; canSimulate: boolean };
   plans: { code: string; name: string; maxUsers: number | null; priceMonthly: number; vatAmount: number; total: number }[];
   invoices: {
     id: string;
@@ -159,6 +163,8 @@ export interface BillingOverview extends BillingStatus {
     amount: number;
     status: 'draft' | 'open' | 'paid' | 'void';
     paymentStatus: 'pending' | 'succeeded' | 'failed' | null;
+    /** How to pay this open invoice while its payment is pending (e.g. the PromptPay QR). */
+    paymentAction: { type: 'redirect' | 'qr'; url: string; expiresAt: string | null } | null;
     issuedAt: string | null;
     paidAt: string | null;
     periodStart: string | null;
@@ -212,6 +218,7 @@ const THAI_MESSAGES: Record<string, string> = {
   'Subscription inactive': 'บัญชีอยู่ในโหมดอ่านอย่างเดียว ต้องชำระค่าบริการก่อนจึงจะบันทึกหรือแก้ไขข้อมูลได้',
   'Plan user limit reached': 'จำนวนผู้ใช้ครบตามแพ็กเกจแล้ว อัปเกรดแพ็กเกจเพื่อเพิ่มผู้ใช้',
   'Charge not found': 'ไม่พบรายการชำระเงิน',
+  'Payment simulation is only available with a test-mode payment gateway': 'จำลองการชำระเงินได้เฉพาะโหมดทดสอบ',
   'Too many failed login attempts': 'ใส่รหัสผ่านผิดหลายครั้งเกินไป บัญชีนี้ถูกล็อกชั่วคราว กรุณาลองใหม่ภายใน 15 นาที',
   'Too many requests': 'มีการเรียกใช้งานถี่เกินไป กรุณารอสักครู่แล้วลองใหม่',
   'Period is closed': 'ปีบัญชีนี้ปิดบัญชีแล้ว บันทึกหรือยกเลิกรายการที่ลงวันที่ในช่วงนี้ไม่ได้',

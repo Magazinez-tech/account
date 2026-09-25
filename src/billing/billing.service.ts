@@ -21,6 +21,9 @@ interface InvoiceRow {
   amount: string;
   status: Invoice['status'];
   payment_status: string | null;
+  action_type: 'redirect' | 'qr' | null;
+  action_url: string | null;
+  action_expires_at: Date | null;
   issued_at: Date | null;
   paid_at: Date | null;
   period_start: Date | null;
@@ -66,12 +69,16 @@ export class BillingService {
       const vatRate = await this.vatRate(m);
       const plans = await m.getRepository(SubscriptionPlan).find({ where: { isActive: true }, order: { priceMonthly: 'ASC' } });
       const invoices: InvoiceRow[] = await m.query(
-        `SELECT i.*, (SELECT p.status FROM payments p WHERE p.invoice_id = i.id ORDER BY p.created_at DESC LIMIT 1) AS payment_status
-           FROM invoices i ORDER BY i.created_at DESC LIMIT 50`,
+        `SELECT i.*, p.status AS payment_status, p.action_type, p.action_url, p.expires_at AS action_expires_at
+           FROM invoices i
+           LEFT JOIN LATERAL (SELECT status, action_type, action_url, expires_at FROM payments
+                               WHERE invoice_id = i.id ORDER BY created_at DESC LIMIT 1) p ON true
+          ORDER BY i.created_at DESC LIMIT 50`,
       );
       return {
         ...(await this.statusIn(m)),
         vatRate,
+        gateway: { provider: this.gateway.provider, canSimulate: this.gateway.canSimulate },
         plans: plans.map((p) => {
           const price = priceWithVat(toSatang(p.priceMonthly), vatRate);
           return {
@@ -92,6 +99,11 @@ export class BillingService {
           amount: Number(row.amount),
           status: row.status,
           paymentStatus: row.payment_status,
+          // How to pay an open invoice (e.g. its PromptPay QR) while the payment is still pending.
+          paymentAction:
+            row.status === 'open' && row.payment_status === 'pending' && row.action_type
+              ? { type: row.action_type, url: row.action_url, expiresAt: row.action_expires_at }
+              : null,
           issuedAt: row.issued_at,
           paidAt: row.paid_at,
           periodStart: row.period_start,
@@ -152,6 +164,7 @@ export class BillingService {
       currency: invoice.currency,
       description: `${invoice.invoiceNo} ${invoice.description}`,
       returnUrl: `${appUrl}/billing?invoice=${invoice.id}`,
+      invoiceId: invoice.id,
     });
     await this.db.run(auth.tenantId, (m) =>
       m.getRepository(Payment).insert({
@@ -162,10 +175,22 @@ export class BillingService {
         amount: invoice.amount,
         currency: invoice.currency,
         status: 'pending',
+        actionType: charge.action.type,
+        actionUrl: charge.action.type === 'redirect' ? charge.action.url : charge.action.imageUrl,
+        expiresAt: charge.action.type === 'qr' && charge.action.expiresAt ? new Date(charge.action.expiresAt) : null,
       }),
     );
 
-    return { invoiceId: invoice.id, invoiceNo: invoice.invoiceNo, amount: Number(invoice.amount), redirectUrl: charge.authorizeUri };
+    return {
+      invoiceId: invoice.id,
+      invoiceNo: invoice.invoiceNo,
+      amount: Number(invoice.amount),
+      /** The provider's charge id (e.g. chrg_... at Omise), for support and reconciliation. */
+      chargeId: charge.chargeId,
+      payment: charge.action,
+      // Kept for redirect gateways: where to send the customer.
+      redirectUrl: charge.action.type === 'redirect' ? charge.action.url : undefined,
+    };
   }
 
   // ---- Gateway results (webhook / mock) -----------------------------------
@@ -234,6 +259,71 @@ export class BillingService {
       await m.getRepository(Tenant).update(found.tenantId, { subscriptionStatus: 'active' });
       return { status: 'succeeded', alreadySettled: false };
     });
+  }
+
+/**
+   * Asks the provider for a charge's state and settles it once final. Used by the webhook (whose
+   * payload is never trusted) and by polling from the billing page, so a missed webhook only
+   * delays settlement.
+   */
+  async syncCharge(chargeId: string) {
+    const payment = await this.paymentByCharge(chargeId);
+    if (payment.status !== 'pending' || !this.gateway.fetchCharge) return { status: payment.status };
+    const state = await this.gateway.fetchCharge(chargeId);
+    if (state.status === 'pending') return { status: 'pending' };
+    return this.settleCharge(chargeId, state.status, state.failureMessage);
+  }
+
+  /** Latest payment attempt for one of the tenant's invoices. */
+  private async latestPayment(auth: AuthUser, invoiceId: string) {
+    const payment = await this.db.run(auth.tenantId, (m) =>
+      m.getRepository(Payment).findOne({ where: { invoiceId }, order: { createdAt: 'DESC' } }),
+    );
+    if (!payment) throw new NotFoundException('No payment for this invoice');
+    return payment;
+  }
+
+  private async invoicePaymentState(auth: AuthUser, invoiceId: string) {
+    const payment = await this.latestPayment(auth, invoiceId);
+    const invoice = await this.db.run(auth.tenantId, (m) => m.getRepository(Invoice).findOneByOrFail({ id: invoiceId }));
+    return { invoiceStatus: invoice.status, paymentStatus: payment.status, failureMessage: payment.failureMessage };
+  }
+
+  /** Billing page polling while a QR is shown: pulls the charge's state from the provider. */
+  async refreshInvoicePayment(auth: AuthUser, invoiceId: string) {
+    const payment = await this.latestPayment(auth, invoiceId);
+    if (payment.status === 'pending') await this.syncCharge(payment.providerChargeId);
+    return this.invoicePaymentState(auth, invoiceId);
+  }
+
+  /** Test mode only: have the provider mark the invoice's pending charge paid or failed. */
+  async simulateInvoicePayment(auth: AuthUser, invoiceId: string, outcome: 'succeeded' | 'failed') {
+    if (!this.gateway.canSimulate || !this.gateway.simulate) {
+      throw new BadRequestException('Payment simulation is only available with a test-mode payment gateway');
+    }
+    const payment = await this.latestPayment(auth, invoiceId);
+    if (payment.status !== 'pending') throw new ConflictException(`Payment is already ${payment.status}`);
+    await this.gateway.simulate(payment.providerChargeId, outcome);
+    await this.syncCharge(payment.providerChargeId);
+    return this.invoicePaymentState(auth, invoiceId);
+  }
+
+  /**
+   * Provider webhook. Only the charge id is taken from the payload; the state comes from the
+   * provider's API (syncCharge), so a forged event can't mark anything paid. Always answers 2xx for
+   * events it doesn't handle, so the provider stops retrying them.
+   */
+  async handleWebhook(provider: string, event: { object?: string; key?: string; data?: { object?: string; id?: unknown } }) {
+    if (provider !== this.gateway.provider) return { received: true, handled: false, reason: 'provider not active' };
+    const chargeId = event?.object === 'event' && event.data?.object === 'charge' ? event.data.id : undefined;
+    if (typeof chargeId !== 'string') return { received: true, handled: false, reason: 'not a charge event' };
+    try {
+      const result = await this.syncCharge(chargeId);
+      return { received: true, handled: true, status: result.status };
+    } catch (err) {
+      if (err instanceof NotFoundException) return { received: true, handled: false, reason: 'unknown charge' };
+      throw err;
+    }
   }
 
   // ---- Cancel / resume ----------------------------------------------------

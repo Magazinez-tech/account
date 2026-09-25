@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { api, type BillingOverview, type SubscriptionStatus } from '../api';
+import { api, type BillingOverview, type PaymentAction, type SubscriptionStatus } from '../api';
 import { formatDate, formatMoney } from '../format';
 import { Alert, Badge, Button, Card, cx, Loading, PageHeader } from '../ui';
 import { useApi } from '../useApi';
+import { announceBillingChanged } from '../billing-events';
+import PromptPayPanel from './PromptPayPanel';
 
 const STATUS: Record<SubscriptionStatus, { label: string; tone: 'green' | 'amber' | 'red' | 'slate' }> = {
   trialing: { label: 'ทดลองใช้', tone: 'amber' },
@@ -45,7 +47,7 @@ function PaymentResult({ overview, invoiceId, reload }: { overview: BillingOverv
 
 export default function BillingPage() {
   const { data, error, loading, reload } = useApi<BillingOverview>('/billing');
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   const returnedInvoice = params.get('invoice');
   const [busy, setBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -54,14 +56,31 @@ export default function BillingPage() {
     setBusy(planCode);
     setActionError(null);
     try {
-      const res = await api<{ redirectUrl: string }>('/billing/checkout', { method: 'POST', body: { planCode } });
-      // Off to the payment provider's page; it sends the customer back to /billing?invoice=...
-      window.location.assign(res.redirectUrl);
+      const res = await api<{ invoiceId: string; payment: PaymentAction }>('/billing/checkout', { method: 'POST', body: { planCode } });
+      if (res.payment.type === 'redirect') {
+        // Off to the payment provider's page; it sends the customer back to /billing?invoice=...
+        window.location.assign(res.payment.url);
+        return;
+      }
+      // PromptPay: the open invoice now carries its QR; the panel below shows it.
+      setParams({});
+      reload();
+      setBusy(null);
     } catch (err) {
       setActionError((err as Error).message);
       setBusy(null);
     }
   }
+
+  // A QR payment settled: show the same result banner as a redirect return, then refresh.
+  const onQrSettled = useCallback(
+    (invoiceId: string) => {
+      setParams({ invoice: invoiceId });
+      reload();
+      announceBillingChanged();
+    },
+    [setParams, reload],
+  );
 
   async function toggleRenewal(action: 'cancel' | 'resume') {
     if (action === 'cancel' && !confirm('ยกเลิกการต่ออายุ? ยังใช้งานได้ตามปกติจนถึงวันสิ้นสุดรอบที่ชำระแล้ว')) return;
@@ -69,6 +88,7 @@ export default function BillingPage() {
     try {
       await api(`/billing/${action}`, { method: 'POST' });
       reload();
+      announceBillingChanged();
     } catch (err) {
       setActionError((err as Error).message);
     }
@@ -79,6 +99,7 @@ export default function BillingPage() {
   if (!data) return null;
 
   const status = STATUS[data.status];
+  const qrInvoice = data.invoices.find((i) => i.status === 'open' && i.paymentAction?.type === 'qr');
   const isPaid = data.status === 'active';
 
   return (
@@ -115,6 +136,19 @@ export default function BillingPage() {
           </div>
         )}
       </Card>
+
+      {qrInvoice && qrInvoice.paymentAction && (
+        <PromptPayPanel
+          key={qrInvoice.id}
+          invoiceId={qrInvoice.id}
+          invoiceNo={qrInvoice.invoiceNo}
+          amount={qrInvoice.amount}
+          imageUrl={qrInvoice.paymentAction.url}
+          expiresAt={qrInvoice.paymentAction.expiresAt}
+          canSimulate={data.gateway.canSimulate}
+          onSettled={() => onQrSettled(qrInvoice.id)}
+        />
+      )}
 
       <h2 className="mb-3 text-lg font-semibold">แพ็กเกจ</h2>
       <div className="mb-8 grid gap-4 md:grid-cols-3">
