@@ -203,6 +203,11 @@ export default function SalesDocumentPage({ docType }: { docType: SalesDocType }
               บันทึกรับชำระ
             </Button>
           )}
+          {docType === 'billing_note' && doc.status === 'paid' && (
+            <Link to={`/billing-notes/${doc.id}/tax-invoice`} className="inline-flex items-center rounded-md border border-emerald-700 px-3 py-1.5 text-sm font-medium text-emerald-800 hover:bg-emerald-50">
+              ใบกำกับภาษี / ใบเสร็จ
+            </Link>
+          )}
           {doc.quotation && (
             <Link to={`${DOC_TYPES.quotation.path}/${doc.quotation.id}`} className="text-sm font-medium text-emerald-800 underline">
               จากใบเสนอราคา {doc.quotation.docNo}

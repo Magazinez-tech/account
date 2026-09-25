@@ -383,11 +383,28 @@ try {
   await page.getByRole('button', { name: 'บันทึกรับชำระ', exact: true }).click();
   check('payment recorded', await seen(page.getByText(/^บันทึกรับชำระ BN-\d{4}-0001 แล้ว$/)));
   check('billing note shows paid', await seen(page.getByText('ชำระแล้ว', { exact: true })));
+  check('paid billing note shows tax invoice link', await seen(page.getByRole('link', { name: 'ใบกำกับภาษี / ใบเสร็จ' })));
   await page.screenshot({ path: `${shots}16-billing-note.png`, fullPage: true });
   await page.emulateMedia({ media: 'print' });
   check('print view hides the app menu and actions', !(await page.getByRole('navigation').isVisible()) && !(await page.getByRole('button', { name: 'พิมพ์ / PDF' }).isVisible()));
   await page.screenshot({ path: `${shots}17-billing-note-print.png`, fullPage: true });
   await page.emulateMedia({ media: 'screen' });
+
+  // Tax invoice page
+  await page.getByRole('link', { name: 'ใบกำกับภาษี / ใบเสร็จ' }).click();
+  await page.getByText('TAX INVOICE / RECEIPT').waitFor();
+  check('tax invoice page shows Thai/English title', true);
+  check('tax invoice shows company tax ID', await seen(page.getByText('เลขประจำตัวผู้เสียภาษี 0105561234567 (สำนักงานใหญ่)')));
+  check('tax invoice shows amount in Thai words', await seen(page.getByText('(สามหมื่นเจ็ดพันสี่ร้อยห้าสิบบาทถ้วน)')));
+  check('tax invoice shows the billing note date as reference', await seen(page.getByText('วันที่วางบิล')));
+  await page.screenshot({ path: `${shots}18-tax-invoice.png`, fullPage: true });
+  await page.emulateMedia({ media: 'print' });
+  check('tax invoice print view hides nav and actions', !(await page.getByRole('navigation').isVisible()) && !(await page.getByRole('button', { name: 'พิมพ์ / PDF' }).isVisible()));
+  await page.screenshot({ path: `${shots}19-tax-invoice-print.png`, fullPage: true });
+  await page.emulateMedia({ media: 'screen' });
+  await page.getByRole('link', { name: /← ใบวางบิล BN-/ }).click();
+  await page.getByRole('heading', { name: /^ใบวางบิล BN-/ }).waitFor();
+  check('back link returns to billing note', await seen(page.getByText('ชำระแล้ว', { exact: true })));
 
   await page.getByRole('link', { name: 'ใบเสนอราคา', exact: true }).click();
   check('quotation list links to its billing note', await seen(page.getByRole('link', { name: /^BN-\d{4}-0001$/ })));

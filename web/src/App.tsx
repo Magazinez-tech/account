@@ -18,6 +18,7 @@ import MockCheckoutPage from './pages/MockCheckoutPage';
 import SalesDocumentFormPage from './pages/SalesDocumentFormPage';
 import SalesDocumentListPage from './pages/SalesDocumentListPage';
 import SalesDocumentPage from './pages/SalesDocumentPage';
+import TaxInvoicePage from './pages/TaxInvoicePage';
 import SignupPage from './pages/SignupPage';
 import TrialBalancePage from './pages/TrialBalancePage';
 import UsersPage from './pages/UsersPage';
@@ -179,6 +180,7 @@ export default function App() {
                 <Route key={`${t}-edit`} path={`${base}/:id/edit`} element={<SalesDocumentFormPage key={`${t}-edit`} docType={t} />} />,
               ];
             })}
+            <Route path="/billing-notes/:id/tax-invoice" element={<TaxInvoicePage />} />
             <Route element={<AdminOnly />}>
               <Route path="/users" element={<UsersPage />} />
               <Route path="/billing" element={<BillingPage />} />

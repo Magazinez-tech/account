@@ -3,6 +3,13 @@ import { formatDate, formatMoney } from '../format';
 import { bahtText, branchLabel, DOC_TYPES } from '../sales';
 import { cx } from '../ui';
 
+const TAX_INVOICE_CFG = {
+  title: 'ใบกำกับภาษี / ใบเสร็จรับเงิน',
+  titleEn: 'TAX INVOICE / RECEIPT',
+  issuerLabel: 'ผู้รับมอบอำนาจ',
+  receiverLabel: 'ผู้รับเงิน',
+};
+
 const money = (n: number) => formatMoney(n);
 const quantity = new Intl.NumberFormat('th-TH', { maximumFractionDigits: 2 });
 
@@ -36,9 +43,12 @@ function Signature({ label, name }: { label: string; name?: string | null }) {
  * The document as printed: issuer from the company profile, customer as copied onto the document,
  * lines, totals with the amount in Thai words, and signature boxes. The issuer signature shows the
  * user who created the document.
+ *
+ * Pass `taxInvoice` to render a paid billing note as ใบกำกับภาษี / ใบเสร็จรับเงิน, using the
+ * payment date as the primary date and the billing note date as a reference row.
  */
-export default function SalesDocumentPaper({ doc, company }: { doc: SalesDocument; company: Company | null }) {
-  const cfg = DOC_TYPES[doc.docType];
+export default function SalesDocumentPaper({ doc, company, taxInvoice = false }: { doc: SalesDocument; company: Company | null; taxInvoice?: boolean }) {
+  const cfg = taxInvoice ? TAX_INVOICE_CFG : DOC_TYPES[doc.docType];
   const taxLine = (taxId: string | null, branch: string | null) =>
     taxId ? `เลขประจำตัวผู้เสียภาษี ${taxId}${branch ? ` (${branchLabel(branch)})` : ''}` : null;
   const contacts = company ? [company.phone && `โทร ${company.phone}`, company.email, company.website].filter(Boolean).join(' · ') : '';
@@ -48,7 +58,7 @@ export default function SalesDocumentPaper({ doc, company }: { doc: SalesDocumen
       aria-label={`${cfg.title} ${doc.docNo}`}
       className="relative mx-auto max-w-[210mm] bg-white p-8 text-sm leading-relaxed text-slate-900 shadow-xs ring-1 ring-slate-200 print:max-w-none print:p-0 print:shadow-none print:ring-0"
     >
-      {(doc.status === 'void' || doc.status === 'draft') && (
+      {!taxInvoice && (doc.status === 'void' || doc.status === 'draft') && (
         <div
           aria-hidden
           className={cx(
@@ -73,12 +83,23 @@ export default function SalesDocumentPaper({ doc, company }: { doc: SalesDocumen
           <dl className="mt-3 grid grid-cols-[auto_auto] justify-end gap-x-4 gap-y-0.5 text-left">
             <dt className="text-slate-500">เลขที่</dt>
             <dd className="font-mono font-semibold">{doc.docNo}</dd>
-            <dt className="text-slate-500">วันที่</dt>
-            <dd>{formatDate(doc.docDate)}</dd>
-            {doc.dueDate && (
+            {taxInvoice ? (
               <>
-                <dt className="text-slate-500">{cfg.dueLabel}</dt>
-                <dd>{formatDate(doc.dueDate)}</dd>
+                <dt className="text-slate-500">วันที่รับชำระ</dt>
+                <dd>{formatDate(doc.paidDate!)}</dd>
+                <dt className="text-slate-500">วันที่วางบิล</dt>
+                <dd>{formatDate(doc.docDate)}</dd>
+              </>
+            ) : (
+              <>
+                <dt className="text-slate-500">วันที่</dt>
+                <dd>{formatDate(doc.docDate)}</dd>
+                {doc.dueDate && (
+                  <>
+                    <dt className="text-slate-500">{(cfg as (typeof DOC_TYPES)[keyof typeof DOC_TYPES]).dueLabel}</dt>
+                    <dd>{formatDate(doc.dueDate)}</dd>
+                  </>
+                )}
               </>
             )}
             {doc.reference && (

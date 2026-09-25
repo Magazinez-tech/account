@@ -32,4 +32,4 @@ Legend: ✅ done · ⏳ in progress · ⬜ todo
 
 | Tag | Task | Status | Notes |
 |---|---|---|---|
-| TASK-18 | Tax invoice / receipt PDF for paid invoices (company tax ID, address) | ⬜ | Issuer details now come from the company profile (TASK-19) |
+| TASK-18 | Tax invoice / receipt PDF for paid invoices (company tax ID, address) | ✅ | `/billing-notes/:id/tax-invoice` renders ใบกำกับภาษี / ใบเสร็จรับเงิน for paid notes; uses paidDate as the primary date, shows BN date as reference; link appears on paid billing note page. E2E 7 new checks |
