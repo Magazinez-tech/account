@@ -165,7 +165,8 @@ try {
   check('billing page lists 3 plans with VAT', await eventually(async () => (await page.getByText(/\+ VAT 7%/).count()) === 3));
   await page.getByRole('button', { name: 'เปลี่ยนเป็นแพ็กเกจนี้' }).first().click(); // Pro (plans sorted by price)
   await page.getByText('Mock Payment Gateway').waitFor();
-  check('redirected to the gateway with the VAT-inclusive amount', (await page.locator('body').innerText()).includes('845.30'));
+  // The page title renders before the charge loads, so wait for the amount itself.
+  check('redirected to the gateway with the VAT-inclusive amount', await seen(page.getByText('845.30')));
   await page.screenshot({ path: `${shots}07-mock-gateway.png` });
   await page.getByRole('button', { name: 'จำลองการชำระไม่สำเร็จ' }).click();
   await page.getByText(/ชำระเงินใบแจ้งหนี้ INV-000001 ไม่สำเร็จ/).waitFor();
