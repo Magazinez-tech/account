@@ -178,10 +178,80 @@ Check 'trial balance asOf 2026-09-01 = 100,000' ($r.Body.totalDebit -eq 100000)
 $r = Invoke-Api GET '/api/v1/reports/trial-balance' $null $tokenB
 Check "tenant B trial balance is empty" ($r.Status -eq 200 -and @($r.Body.accounts).Count -eq 0)
 
-Write-Host "`n10.3 Row-Level Security (direct SQL as app_user)"
+Write-Host "`nAccounting: financial statements"
+$r = Invoke-Api POST '/api/v1/journal-entries' @{
+    entryDate = '2026-09-10'; description = 'Salaries'
+    lines = @(@{ accountId = $acc['5100']; debit = 3000 }, @{ accountId = $acc['1010']; credit = 3000 })
+} $tokenA
+Check 'post salaries entry' ($r.Status -eq 201)
+
+$r = Invoke-Api GET '/api/v1/reports/income-statement' $null $tokenA
+Check 'income statement: revenue 10,000, expenses 3,000, net 7,000' ($r.Status -eq 200 -and $r.Body.revenue.total -eq 10000 -and $r.Body.expenses.total -eq 3000 -and $r.Body.netIncome -eq 7000) "(got $($r.Body | ConvertTo-Json -Compress -Depth 5))"
+Check 'income statement excludes voided rent' (-not (@($r.Body.expenses.accounts) | Where-Object { $_.code -eq '5200' }))
+$r = Invoke-Api GET '/api/v1/reports/income-statement?from=2026-09-06&to=2026-09-30' $null $tokenA
+Check 'income statement 09-06..09-30: net loss 3,000' ($r.Body.revenue.total -eq 0 -and $r.Body.netIncome -eq -3000) "(got $($r.Body.netIncome))"
+$r = Invoke-Api GET '/api/v1/reports/income-statement?from=2026-09-30&to=2026-09-01' $null $tokenA
+Check 'income statement from > to -> 400' ($r.Status -eq 400)
+
+$r = Invoke-Api GET '/api/v1/reports/balance-sheet' $null $tokenA
+Check 'balance sheet: assets 107,700 = liabilities 700 + equity 107,000' ($r.Status -eq 200 -and $r.Body.assets.total -eq 107700 -and $r.Body.liabilities.total -eq 700 -and $r.Body.equity.total -eq 107000 -and $r.Body.balanced -eq $true) "(got $($r.Body | ConvertTo-Json -Compress -Depth 5))"
+Check 'balance sheet current earnings = net income 7,000' ($r.Body.equity.currentEarnings -eq 7000)
+$r = Invoke-Api GET '/api/v1/reports/balance-sheet?asOf=2026-09-05' $null $tokenA
+Check 'balance sheet asOf 09-05: assets 110,700, earnings 10,000' ($r.Body.assets.total -eq 110700 -and $r.Body.equity.currentEarnings -eq 10000 -and $r.Body.balanced -eq $true)
+$r = Invoke-Api GET '/api/v1/reports/balance-sheet' $null $tokenB
+Check 'tenant B balance sheet is empty and balanced' ($r.Status -eq 200 -and $r.Body.assets.total -eq 0 -and $r.Body.balanced -eq $true)
+
 $pgBin = 'C:\Program Files\PostgreSQL\16\bin\psql.exe'
+$env:PGPASSWORD = 'postgres'
+
+Write-Host "`nRole-based permissions (User role)"
 if (Test-Path $pgBin) {
-    $env:PGPASSWORD = 'postgres'
+    # No invite endpoint yet (TASK-11), so seed a User-role member of tenant A directly.
+    $hash = (& node -e "process.stdout.write(require('bcryptjs').hashSync('ClerkPass123', 10))")
+    $sql = 'WITH u AS (INSERT INTO users (tenant_id, email, full_name, password_hash) ' +
+           "VALUES ('$tenantA', 'clerk@testcompany.com', 'Clerk', '" + $hash + "') RETURNING id, tenant_id) " +
+           'INSERT INTO user_roles (user_id, role_id, tenant_id) SELECT u.id, r.id, u.tenant_id FROM u ' +
+           "JOIN roles r ON r.tenant_id = u.tenant_id AND r.name = 'User'"
+    & $pgBin -U postgres -h localhost -d accounting_saas_dev -q -c $sql | Out-Null
+
+    $r = Invoke-Api POST '/api/v1/auth/login' @{ email = 'clerk@testcompany.com'; password = 'ClerkPass123'; tenantId = $tenantA }
+    $tokenUser = $r.Body.accessToken
+    $r = Invoke-Api GET '/api/v1/auth/me' $null $tokenUser
+    Check 'User-role member logs in with roles = [User]' ($r.Status -eq 200 -and (@($r.Body.roles) -join ',') -eq 'User')
+
+    $r = Invoke-Api GET '/api/v1/accounts' $null $tokenUser
+    Check 'User can list accounts' ($r.Status -eq 200)
+    $r = Invoke-Api GET '/api/v1/reports/trial-balance' $null $tokenUser
+    Check 'User can read trial balance' ($r.Status -eq 200)
+    $r = Invoke-Api POST '/api/v1/journal-entries' @{
+        entryDate = '2026-09-08'; description = 'Utilities'
+        lines = @(@{ accountId = $acc['5300']; debit = 1200 }, @{ accountId = $acc['1000']; credit = 1200 })
+    } $tokenUser
+    Check 'User can post a journal entry' ($r.Status -eq 201)
+    $userEntryId = $r.Body.id
+
+    $r = Invoke-Api POST '/api/v1/accounts' @{ code = '1030'; name = 'Petty cash'; type = 'asset' } $tokenUser
+    Check 'User cannot create an account -> 403' ($r.Status -eq 403 -and $r.Body.message -eq 'Requires role: Admin') "(got $($r.Status))"
+    $r = Invoke-Api POST "/api/v1/journal-entries/$userEntryId/void" $null $tokenUser
+    Check 'User cannot void an entry -> 403' ($r.Status -eq 403) "(got $($r.Status))"
+    $r = Invoke-Api GET "/api/v1/journal-entries/$userEntryId" $null $tokenA
+    Check 'entry is still posted after the denied void' ($r.Body.status -eq 'posted')
+
+    $r = Invoke-Api POST "/api/v1/journal-entries/$userEntryId/void" $null $tokenA
+    Check 'Admin can void the entry' ($r.Status -eq 201 -and $r.Body.status -eq 'void')
+
+    # Roles are checked against the DB per request, so granting Admin works without a new token.
+    $sql = "INSERT INTO user_roles (user_id, role_id, tenant_id) SELECT u.id, r.id, u.tenant_id FROM users u " +
+           "JOIN roles r ON r.tenant_id = u.tenant_id AND r.name = 'Admin' WHERE u.tenant_id = '$tenantA' AND u.email = 'clerk@testcompany.com'"
+    & $pgBin -U postgres -h localhost -d accounting_saas_dev -q -c $sql | Out-Null
+    $r = Invoke-Api POST '/api/v1/accounts' @{ code = '1030'; name = 'Petty cash'; type = 'asset' } $tokenUser
+    Check 'granting Admin takes effect on the same token' ($r.Status -eq 201) "(got $($r.Status))"
+} else {
+    Write-Host '  [SKIP] psql not found' -ForegroundColor Yellow
+}
+
+Write-Host "`n10.3 Row-Level Security (direct SQL as app_user)"
+if (Test-Path $pgBin) {
     $noRls = & $pgBin -U postgres -h localhost -d accounting_saas_dev -tA -c "SELECT count(*) FROM pg_tables WHERE schemaname='public' AND tablename <> 'typeorm_migrations' AND NOT rowsecurity"
     Check 'RLS enabled on every app table' ($noRls.Trim() -eq '0') "($noRls tables without RLS)"
     $sql = "BEGIN; SET LOCAL ROLE app_user; SELECT set_config('app.tenant_id', '$tenantB', true); SELECT count(*) FROM journal_entries WHERE tenant_id = '$tenantA'; ROLLBACK;"

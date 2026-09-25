@@ -29,6 +29,24 @@ npm run typeorm migration:run
 - URL: http://localhost:3000
 - API Base: http://localhost:3000/api/v1
 
+## Web App
+```powershell
+cd web
+npm install
+npm run dev        # http://localhost:5173; /api is proxied to :3000
+```
+Vite + React 19 + TypeScript + Tailwind 4 + React Router. Start the API first.
+
+| Command (in `web/`) | What it does |
+|---|---|
+| `npm run dev` | Dev server with HMR |
+| `npm run build` | Typecheck and build to `web/dist/` |
+| `npm run lint` | oxlint |
+| `npm run e2e` | Browser smoke test in headless Edge (API and dev server must be running). Screenshots go to `web/e2e/screenshots/` |
+
+- Tokens are kept in `localStorage`. A 401 triggers one refresh with the refresh token; if that fails, the user is signed out.
+- The journal form checks balance in satang in the browser too, so the submit button stays disabled until debits equal credits.
+
 ## Test Credentials
 The smoke test creates fresh tenants on every run (slug `test-company-<random>`):
 - Email: admin@testcompany.com

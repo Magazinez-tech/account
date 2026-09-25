@@ -131,9 +131,14 @@ export class AccountingService {
     return entry;
   }
 
+
   // ---- Reports ----------------------------------------------------------
 
-  async trialBalance(user: AuthUser, asOf?: string) {
+  /**
+   * Posted debit-minus-credit per account, in satang, for entries dated within [from, to]
+   * (either bound optional). Every account is returned, including those with no activity.
+   */
+  private async accountBalances(user: AuthUser, range: { from?: string; to?: string }): Promise<AccountBalance[]> {
     const rows: { id: string; code: string; name: string; type: AccountType; debit: string; credit: string }[] =
       await this.db.run(user.tenantId, (m) =>
         m.query(
@@ -145,26 +150,35 @@ export class AccountingService {
                         JOIN journal_entries e
                           ON e.id = l.journal_entry_id
                          AND e.status = 'posted'
-                         AND ($1::date IS NULL OR e.entry_date <= $1::date))
+                         AND ($1::date IS NULL OR e.entry_date >= $1::date)
+                         AND ($2::date IS NULL OR e.entry_date <= $2::date))
                ON l.account_id = a.id
             GROUP BY a.id
             ORDER BY a.code`,
-          [asOf ?? null],
+          [range.from ?? null, range.to ?? null],
         ),
       );
+    return rows.map((r) => ({
+      accountId: r.id,
+      code: r.code,
+      name: r.name,
+      type: r.type,
+      net: toSatang(r.debit) - toSatang(r.credit),
+    }));
+  }
 
+  async trialBalance(user: AuthUser, asOf?: string) {
     let totalDebit = 0;
     let totalCredit = 0;
-    const accounts = rows
-      .map((r) => {
-        const net = toSatang(r.debit) - toSatang(r.credit);
+    const accounts = (await this.accountBalances(user, { to: asOf }))
+      .filter((a) => a.net !== 0)
+      .map(({ net, ...a }) => {
         const debit = Math.max(net, 0);
         const credit = Math.max(-net, 0);
         totalDebit += debit;
         totalCredit += credit;
-        return { accountId: r.id, code: r.code, name: r.name, type: r.type, debit: fromSatang(debit), credit: fromSatang(credit) };
-      })
-      .filter((a) => a.debit !== 0 || a.credit !== 0);
+        return { ...a, debit: fromSatang(debit), credit: fromSatang(credit) };
+      });
 
     return {
       asOf: asOf ?? null,
@@ -174,4 +188,62 @@ export class AccountingService {
       balanced: totalDebit === totalCredit,
     };
   }
+
+  /** Revenue and expenses for a period. Amounts are positive in each section's normal direction. */
+  async incomeStatement(user: AuthUser, range: DateRangeQuery) {
+    if (range.from && range.to && range.from > range.to) throw new BadRequestException('from must be on or before to');
+    const balances = await this.accountBalances(user, range);
+    const revenue = section(balances, 'revenue', -1);
+    const expenses = section(balances, 'expense', 1);
+    return {
+      from: range.from ?? null,
+      to: range.to ?? null,
+      revenue: toMoney(revenue),
+      expenses: toMoney(expenses),
+      netIncome: fromSatang(revenue.total - expenses.total),
+    };
+  }
+
+  /**
+   * Financial position as of a date. There are no closing entries yet, so cumulative revenue minus
+   * expenses shows up as current earnings inside equity; that keeps assets = liabilities + equity.
+   */
+  async balanceSheet(user: AuthUser, asOf?: string) {
+    const balances = await this.accountBalances(user, { to: asOf });
+    const assets = section(balances, 'asset', 1);
+    const liabilities = section(balances, 'liability', -1);
+    const equity = section(balances, 'equity', -1);
+    const currentEarnings = section(balances, 'revenue', -1).total - section(balances, 'expense', 1).total;
+    const totalEquity = equity.total + currentEarnings;
+
+    return {
+      asOf: asOf ?? null,
+      assets: toMoney(assets),
+      liabilities: toMoney(liabilities),
+      equity: { ...toMoney(equity), currentEarnings: fromSatang(currentEarnings), total: fromSatang(totalEquity) },
+      totalLiabilitiesAndEquity: fromSatang(liabilities.total + totalEquity),
+      balanced: assets.total === liabilities.total + totalEquity,
+    };
+  }
+}
+
+interface AccountBalance {
+  accountId: string;
+  code: string;
+  name: string;
+  type: AccountType;
+  /** debit - credit, in satang */
+  net: number;
+}
+
+/** Accounts of one type with non-zero balances. sign flips credit-normal types so their balances read positive. */
+function section(balances: AccountBalance[], type: AccountType, sign: 1 | -1) {
+  const accounts = balances
+    .filter((b) => b.type === type && b.net !== 0)
+    .map((b) => ({ accountId: b.accountId, code: b.code, name: b.name, amount: sign * b.net }));
+  return { accounts, total: accounts.reduce((s, a) => s + a.amount, 0) };
+}
+
+function toMoney(s: ReturnType<typeof section>) {
+  return { accounts: s.accounts.map((a) => ({ ...a, amount: fromSatang(a.amount) })), total: fromSatang(s.total) };
 }
