@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api, type Account, type JournalEntry } from '../api';
-import { ACCOUNT_TYPE_LABELS, ACCOUNT_TYPES, formatMoney, fromSatang, parseSatang, today } from '../format';
+import { api, type Account, type FiscalYearStatus, type JournalEntry } from '../api';
+import { ACCOUNT_TYPE_LABELS, ACCOUNT_TYPES, addDays, formatDate, formatMoney, fromSatang, parseSatang, today } from '../format';
 import { Alert, Button, Card, cx, Field, Input, Loading, PageHeader, Select } from '../ui';
 import { useApi } from '../useApi';
 
@@ -49,6 +49,7 @@ function AccountSelect({ accounts, value, onChange }: { accounts: Account[]; val
 export default function JournalNewPage() {
   const navigate = useNavigate();
   const { data: accounts, error: loadError } = useApi<Account[]>('/accounts');
+  const { data: fiscal } = useApi<FiscalYearStatus>('/fiscal-years');
   const [entryDate, setEntryDate] = useState(today);
   const [reference, setReference] = useState('');
   const [description, setDescription] = useState('');
@@ -65,7 +66,9 @@ export default function JournalNewPage() {
   const totalCredit = [...checked.values()].reduce((s, c) => s + c.credit, 0);
   const difference = totalDebit - totalCredit;
   const allValid = [...checked.values()].every((c) => !c.problem);
-  const canSubmit = filled.length >= 2 && allValid && difference === 0 && totalDebit > 0;
+  const closedThrough = fiscal?.closedThrough ?? null;
+  const inClosedYear = closedThrough !== null && entryDate !== '' && entryDate <= closedThrough;
+  const canSubmit = filled.length >= 2 && allValid && difference === 0 && totalDebit > 0 && !inClosedYear;
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -110,7 +113,16 @@ export default function JournalNewPage() {
 
       <Card className="mb-6 grid gap-4 p-5 sm:grid-cols-[10rem_12rem_1fr]">
         <Field label="วันที่">
-          <Input type="date" value={entryDate} onChange={(e) => setEntryDate(e.target.value)} required />
+          <Input
+            type="date"
+            value={entryDate}
+            min={closedThrough ? addDays(closedThrough, 1) : undefined}
+            onChange={(e) => setEntryDate(e.target.value)}
+            required
+            aria-invalid={inClosedYear}
+            className={inClosedYear ? 'border-red-400' : undefined}
+          />
+          {inClosedYear && <span className="mt-1 block text-xs text-red-600">ปิดบัญชีถึง {formatDate(closedThrough!)} แล้ว</span>}
         </Field>
         <Field label="เลขที่อ้างอิง">
           <Input value={reference} onChange={(e) => setReference(e.target.value)} maxLength={100} placeholder="เช่น INV-0001" />

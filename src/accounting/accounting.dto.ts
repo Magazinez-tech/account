@@ -123,3 +123,18 @@ export class AsOfQuery {
   @Matches(DATE_ONLY, { message: 'asOf must be YYYY-MM-DD' })
   asOf?: string;
 }
+
+export class CloseFiscalYearDto {
+  /**
+   * Last day of the fiscal year to close, YYYY-MM-DD. Must be a fiscal year end for the company's
+   * start month, already past, and after the last closed year.
+   * @example 2025-12-31
+   */
+  @Matches(DATE_ONLY, { message: 'fiscalYearEnd must be YYYY-MM-DD' })
+  fiscalYearEnd: string;
+
+  /** Equity account that receives the profit or loss. Defaults to 3100 (กำไร (ขาดทุน) สะสม). */
+  @IsOptional()
+  @IsUUID()
+  retainedEarningsAccountId?: string;
+}

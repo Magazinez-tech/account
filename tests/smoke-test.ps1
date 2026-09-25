@@ -223,6 +223,70 @@ Check 'balance sheet asOf 09-05: assets 110,700, earnings 10,000' ($r.Body.asset
 $r = Invoke-Api GET '/api/v1/reports/balance-sheet' $null $tokenB
 Check 'tenant B balance sheet is empty and balanced' ($r.Status -eq 200 -and $r.Body.assets.total -eq 0 -and $r.Body.balanced -eq $true)
 
+Write-Host "`nYear-end closing"
+# FY 2025 (calendar year): sale 5,000 and misc expense 1,200 -> profit 3,800.
+$r = Invoke-Api POST '/api/v1/journal-entries' @{ entryDate = '2025-06-15'; description = '2025 sale'
+    lines = @(@{ accountId = $acc['1000']; debit = 5000 }, @{ accountId = $acc['4000']; credit = 5000 }) } $tokenA
+$sale2025 = $r.Body.id
+$r = Invoke-Api POST '/api/v1/journal-entries' @{ entryDate = '2025-11-20'; description = '2025 expense'
+    lines = @(@{ accountId = $acc['5900']; debit = 1200 }, @{ accountId = $acc['1000']; credit = 1200 }) } $tokenA
+Check 'post FY2025 entries' ($r.Status -eq 201 -and $sale2025)
+
+$r = Invoke-Api GET '/api/v1/fiscal-years' $null $tokenA
+$n = $r.Body.nextClosable
+Check 'next closable year = FY2025 with profit 3,800 preview' ($r.Status -eq 200 -and $null -eq $r.Body.closedThrough -and $n.fiscalYearEnd -eq '2025-12-31' -and $n.canClose -eq $true -and $n.netIncome -eq 3800 -and $n.retainedEarningsAccount.code -eq '3100') "(got $($r.Body | ConvertTo-Json -Compress -Depth 5))"
+$r = Invoke-Api GET '/api/v1/fiscal-years' $null $tokenB
+Check 'tenant without entries has nothing to close' ($r.Status -eq 200 -and $null -eq $r.Body.nextClosable)
+
+$r = Invoke-Api POST '/api/v1/fiscal-years/close' @{ fiscalYearEnd = '2026-12-31' } $tokenA
+Check 'closing a year that has not ended -> 400' ($r.Status -eq 400 -and $r.Body.message -eq 'The fiscal year has not ended yet') "(got $($r.Status): $($r.Body.message))"
+$r = Invoke-Api POST '/api/v1/fiscal-years/close' @{ fiscalYearEnd = '2025-06-30' } $tokenA
+Check 'closing a date that is not a fiscal year end -> 400' ($r.Status -eq 400)
+
+$r = Invoke-Api POST '/api/v1/fiscal-years/close' @{ fiscalYearEnd = '2025-12-31' } $tokenA
+$c = @($r.Body.closings)[0]
+Check 'close FY2025 -> locked through 2025-12-31, profit 3,800' ($r.Status -eq 200 -and $r.Body.closedThrough -eq '2025-12-31' -and $c.netIncome -eq 3800 -and $c.entryNo) "(got $($r.Status): $($r.Body | ConvertTo-Json -Compress -Depth 5))"
+Check 'next closable year moves to FY2026 (not ended yet)' ($r.Body.nextClosable.fiscalYearEnd -eq '2026-12-31' -and $r.Body.nextClosable.canClose -eq $false)
+$closingId = $c.journalEntryId
+
+$r = Invoke-Api GET "/api/v1/journal-entries/$closingId" $null $tokenA
+$lines = @($r.Body.lines)
+$byAcct = @{}; foreach ($l in $lines) { $byAcct[$l.accountId] = $l }
+Check 'closing entry: kind closing, dated 2025-12-31' ($r.Body.kind -eq 'closing' -and $r.Body.entryDate -eq '2025-12-31')
+Check 'closing entry: Dr sales 5,000 / Cr expense 1,200 / Cr retained earnings 3,800' ([decimal]$byAcct[$acc['4000']].debit -eq 5000 -and [decimal]$byAcct[$acc['5900']].credit -eq 1200 -and [decimal]$byAcct[$acc['3100']].credit -eq 3800 -and $lines.Count -eq 3)
+
+$r = Invoke-Api GET '/api/v1/reports/income-statement?from=2025-01-01&to=2025-12-31' $null $tokenA
+Check 'closed year keeps its income statement (closing excluded)' ($r.Body.revenue.total -eq 5000 -and $r.Body.netIncome -eq 3800) "(got $($r.Body.netIncome))"
+$r = Invoke-Api GET '/api/v1/reports/balance-sheet?asOf=2025-12-31' $null $tokenA
+$re = @($r.Body.equity.accounts) | Where-Object { $_.code -eq '3100' }
+Check 'balance sheet at year end: profit in retained earnings, no current earnings' ($re.amount -eq 3800 -and $r.Body.equity.currentEarnings -eq 0 -and $r.Body.balanced -eq $true) "(got $($r.Body.equity | ConvertTo-Json -Compress -Depth 5))"
+$r = Invoke-Api GET '/api/v1/reports/balance-sheet' $null $tokenA
+Check 'balance sheet today: current earnings = 2026 profit only (7,000), still balanced' ($r.Body.equity.currentEarnings -eq 7000 -and $r.Body.balanced -eq $true) "(got $($r.Body.equity.currentEarnings))"
+$r = Invoke-Api GET '/api/v1/reports/trial-balance' $null $tokenA
+Check 'trial balance still balances after closing' ($r.Body.balanced -eq $true)
+
+$r = Invoke-Api POST '/api/v1/journal-entries' @{ entryDate = '2025-12-15'
+    lines = @(@{ accountId = $acc['1000']; debit = 100 }, @{ accountId = $acc['4000']; credit = 100 }) } $tokenA
+Check 'posting into the closed year -> 400 Period is closed' ($r.Status -eq 400 -and $r.Body.message -eq 'Period is closed' -and $r.Body.closedThrough -eq '2025-12-31') "(got $($r.Status): $($r.Body.message))"
+$r = Invoke-Api POST "/api/v1/journal-entries/$sale2025/void" $null $tokenA
+Check 'voiding an entry in the closed year -> 400' ($r.Status -eq 400 -and $r.Body.message -eq 'Period is closed')
+$r = Invoke-Api POST "/api/v1/journal-entries/$closingId/void" $null $tokenA
+Check 'closing entries cannot be voided directly' ($r.Status -eq 400)
+$r = Invoke-Api POST '/api/v1/fiscal-years/close' @{ fiscalYearEnd = '2025-12-31' } $tokenA
+Check 'closing the same year again -> 409' ($r.Status -eq 409)
+
+$r = Invoke-Api POST '/api/v1/fiscal-years/2024-12-31/reopen' $null $tokenA
+Check 'reopening a year that is not the latest closed -> 400' ($r.Status -eq 400)
+$r = Invoke-Api POST '/api/v1/fiscal-years/2025-12-31/reopen' $null $tokenA
+Check 'reopen FY2025 -> unlocked' ($r.Status -eq 200 -and $null -eq $r.Body.closedThrough)
+$r = Invoke-Api GET "/api/v1/journal-entries/$closingId" $null $tokenA
+Check 'reopened closing entry is voided, not deleted' ($r.Status -eq 200 -and $r.Body.status -eq 'void')
+$r = Invoke-Api POST '/api/v1/journal-entries' @{ entryDate = '2025-12-15'; description = 'late 2025 sale'
+    lines = @(@{ accountId = $acc['1000']; debit = 100 }, @{ accountId = $acc['4000']; credit = 100 }) } $tokenA
+Check 'posting into the reopened year works' ($r.Status -eq 201)
+$r = Invoke-Api POST '/api/v1/fiscal-years/close' @{ fiscalYearEnd = '2025-12-31' } $tokenA
+Check 'close again -> profit now 3,900' ($r.Status -eq 200 -and @($r.Body.closings)[0].netIncome -eq 3900 -and @($r.Body.closings).Count -eq 1)
+
 Write-Host "`nUser management: invitations"
 $r = Invoke-Api POST '/api/v1/invitations' @{ email = 'Clerk@TestCompany.com'; fullName = 'Clerk'; role = 'User' } $tokenA
 Check 'Admin invites a User -> 201 with one-time token' ($r.Status -eq 201 -and $r.Body.token -and $r.Body.email -eq 'clerk@testcompany.com') "(got $($r.Status): $($r.Body | ConvertTo-Json -Compress))"
@@ -288,6 +352,10 @@ $r = Invoke-Api GET '/api/v1/users' $null $tokenUser
 Check 'User cannot list users -> 403' ($r.Status -eq 403)
 $r = Invoke-Api POST '/api/v1/invitations' @{ email = 'y@testcompany.com'; fullName = 'Y'; role = 'Admin' } $tokenUser
 Check 'User cannot invite -> 403' ($r.Status -eq 403)
+$r = Invoke-Api POST '/api/v1/fiscal-years/2025-12-31/reopen' $null $tokenUser
+Check 'User cannot reopen a fiscal year -> 403' ($r.Status -eq 403)
+$r = Invoke-Api GET '/api/v1/fiscal-years' $null $tokenUser
+Check 'User can see fiscal year status' ($r.Status -eq 200 -and $r.Body.closedThrough -eq '2025-12-31')
 
 Write-Host "`nUser management: roles and deactivation"
 $r = Invoke-Api GET '/api/v1/users' $null $tokenA

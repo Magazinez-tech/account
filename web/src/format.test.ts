@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { formatAmount, formatMoney, fromSatang, parseSatang, startOfFiscalYear, startOfMonth, today } from './format';
+import { addDays, formatAmount, formatMoney, fromSatang, parseSatang, startOfFiscalYear, startOfMonth, today } from './format';
 
 describe('parseSatang', () => {
   it.each([
@@ -55,5 +55,12 @@ describe('dates', () => {
     expect(startOfFiscalYear(1)).toBe('2026-01-01');
     expect(startOfFiscalYear(9)).toBe('2026-09-01'); // starts this month
     expect(startOfFiscalYear(10)).toBe('2025-10-01'); // Thai government-style Oct-Sep year
+  });
+});
+
+describe('addDays', () => {
+  it('crosses month and year boundaries', () => {
+    expect(addDays('2025-12-31', 1)).toBe('2026-01-01');
+    expect(addDays('2026-03-01', -1)).toBe('2026-02-28');
   });
 });

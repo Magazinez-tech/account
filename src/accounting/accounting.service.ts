@@ -1,12 +1,12 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Between, EntityManager, FindOptionsWhere, In, LessThanOrEqual, MoreThanOrEqual } from 'typeorm';
 import { AuthUser } from '../auth/jwt-auth.guard';
-import { fromSatang, toSatang } from '../common/money';
-import { Account, AccountType, JournalEntry, JournalLine } from '../database/entities';
+import { Account, JournalEntry } from '../database/entities';
 import { isUniqueViolation, TenantDb } from '../database/tenant-db.service';
 import { CreateAccountDto, CreateJournalEntryDto, DateRangeQuery } from './accounting.dto';
 import { toBalancedLines } from './journal-rules';
-import { AccountBalance, buildBalanceSheet, buildIncomeStatement, buildTrialBalance } from './statements';
+import { assertPeriodOpen, insertEntry, lockLedger, queryAccountBalances } from './ledger';
+import { buildBalanceSheet, buildIncomeStatement, buildTrialBalance } from './statements';
 
 @Injectable()
 export class AccountingService {
@@ -44,34 +44,17 @@ export class AccountingService {
       const found = await m.getRepository(Account).countBy({ id: In(accountIds), isActive: true });
       if (found !== accountIds.length) throw new BadRequestException('One or more accounts not found or inactive');
 
-      // Serialize numbering per tenant so concurrent posts don't collide on entry_no.
-      await m.query('SELECT pg_advisory_xact_lock(hashtext($1))', [user.tenantId]);
-      const [{ next }] = await m.query(
-        'SELECT COALESCE(MAX(entry_no), 0) + 1 AS next FROM journal_entries WHERE tenant_id = $1',
-        [user.tenantId],
-      );
-
-      const entry = await m.getRepository(JournalEntry).save({
+      // Holding the ledger lock serializes numbering and keeps a concurrent year-end closing out.
+      await lockLedger(m, user.tenantId);
+      await assertPeriodOpen(m, dto.entryDate);
+      return insertEntry(m, {
         tenantId: user.tenantId,
-        entryNo: Number(next),
-        entryDate: dto.entryDate,
-        description: dto.description ?? null,
-        reference: dto.reference ?? null,
-        status: 'posted',
         createdBy: user.userId,
+        entryDate: dto.entryDate,
+        description: dto.description,
+        reference: dto.reference,
+        lines,
       });
-      await m.getRepository(JournalLine).insert(
-        lines.map((l) => ({
-          tenantId: user.tenantId,
-          journalEntryId: entry.id,
-          accountId: l.accountId,
-          description: l.description ?? null,
-          debit: fromSatang(l.debit).toFixed(2),
-          credit: fromSatang(l.credit).toFixed(2),
-          lineNo: l.lineNo,
-        })),
-      );
-      return entry.id;
     });
 
     return this.getEntry(user, entryId);
@@ -97,11 +80,17 @@ export class AccountingService {
     return this.db.run(user.tenantId, (m) => this.loadEntry(m, id));
   }
 
-  /** Posted entries are never edited or deleted; voiding keeps the audit trail. */
+  /**
+   * Posted entries are never edited or deleted; voiding keeps the audit trail. Entries in a closed
+   * fiscal year can't be voided, and closing entries are only reversed by reopening their year.
+   */
   voidEntry(user: AuthUser, id: string) {
     return this.db.run(user.tenantId, async (m) => {
       const entry = await this.loadEntry(m, id);
       if (entry.status === 'void') throw new ConflictException('Entry is already void');
+      if (entry.kind === 'closing') throw new BadRequestException('Closing entries are reversed by reopening the fiscal year');
+      await lockLedger(m, user.tenantId);
+      await assertPeriodOpen(m, entry.entryDate);
       await m.getRepository(JournalEntry).update(id, { status: 'void' });
       return this.loadEntry(m, id);
     });
@@ -117,52 +106,23 @@ export class AccountingService {
     return entry;
   }
 
-
   // ---- Reports ----------------------------------------------------------
 
-  /**
-   * Posted debit-minus-credit per account, in satang, for entries dated within [from, to]
-   * (either bound optional). Every account is returned, including those with no activity.
-   */
-  private async accountBalances(user: AuthUser, range: { from?: string; to?: string }): Promise<AccountBalance[]> {
-    const rows: { id: string; code: string; name: string; type: AccountType; debit: string; credit: string }[] =
-      await this.db.run(user.tenantId, (m) =>
-        m.query(
-          `SELECT a.id, a.code, a.name, a.type,
-                  COALESCE(SUM(l.debit), 0)  AS debit,
-                  COALESCE(SUM(l.credit), 0) AS credit
-             FROM chart_of_accounts a
-             LEFT JOIN (journal_lines l
-                        JOIN journal_entries e
-                          ON e.id = l.journal_entry_id
-                         AND e.status = 'posted'
-                         AND ($1::date IS NULL OR e.entry_date >= $1::date)
-                         AND ($2::date IS NULL OR e.entry_date <= $2::date))
-               ON l.account_id = a.id
-            GROUP BY a.id
-            ORDER BY a.code`,
-          [range.from ?? null, range.to ?? null],
-        ),
-      );
-    return rows.map((r) => ({
-      accountId: r.id,
-      code: r.code,
-      name: r.name,
-      type: r.type,
-      net: toSatang(r.debit) - toSatang(r.credit),
-    }));
+  /** Includes closing entries: after a year is closed its profit sits in retained earnings. */
+  trialBalance(user: AuthUser, asOf?: string) {
+    return this.db.run(user.tenantId, async (m) => buildTrialBalance(await queryAccountBalances(m, { to: asOf }), asOf));
   }
 
-  async trialBalance(user: AuthUser, asOf?: string) {
-    return buildTrialBalance(await this.accountBalances(user, { to: asOf }), asOf);
-  }
-
-  async incomeStatement(user: AuthUser, range: DateRangeQuery) {
+  /** Excludes closing entries, so a closed year still shows its revenue and expenses. */
+  incomeStatement(user: AuthUser, range: DateRangeQuery) {
     if (range.from && range.to && range.from > range.to) throw new BadRequestException('from must be on or before to');
-    return buildIncomeStatement(await this.accountBalances(user, range), range);
+    return this.db.run(user.tenantId, async (m) =>
+      buildIncomeStatement(await queryAccountBalances(m, range, { excludeClosing: true }), range),
+    );
   }
 
-  async balanceSheet(user: AuthUser, asOf?: string) {
-    return buildBalanceSheet(await this.accountBalances(user, { to: asOf }), asOf);
+  /** Current earnings are the not-yet-closed profit; closed years' profit is in retained earnings. */
+  balanceSheet(user: AuthUser, asOf?: string) {
+    return this.db.run(user.tenantId, async (m) => buildBalanceSheet(await queryAccountBalances(m, { to: asOf }), asOf));
   }
 }

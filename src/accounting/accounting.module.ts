@@ -1,10 +1,11 @@
-import { Body, Controller, Get, Module, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
-import { ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Get, HttpCode, Module, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
+import { ApiBadRequestResponse, ApiConflictResponse, ApiTags } from '@nestjs/swagger';
 import { Authenticated } from '../auth/authenticated.decorator';
 import { AuthUser, CurrentUser } from '../auth/jwt-auth.guard';
 import { Roles } from '../auth/roles.guard';
-import { AsOfQuery, CreateAccountDto, CreateJournalEntryDto, DateRangeQuery } from './accounting.dto';
+import { AsOfQuery, CloseFiscalYearDto, CreateAccountDto, CreateJournalEntryDto, DateRangeQuery } from './accounting.dto';
 import { AccountingService } from './accounting.service';
+import { ClosingService } from './closing.service';
 
 @ApiTags('Chart of accounts')
 @Controller('accounts')
@@ -53,7 +54,7 @@ export class JournalEntriesController {
     return this.accounting.createEntry(user, dto);
   }
 
-  /** Void a posted entry. Entries are never deleted; a void entry is excluded from reports. */
+  /** Void a posted entry. Entries are never deleted; a void entry is excluded from reports. Not allowed in a closed year. */
   @Post(':id/void')
   @Roles('Admin')
   void(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
@@ -86,8 +87,44 @@ export class ReportsController {
   }
 }
 
+@ApiTags('Year-end closing')
+@Controller('fiscal-years')
+@Authenticated()
+export class FiscalYearsController {
+  constructor(private readonly closing: ClosingService) {}
+
+  /** Closed fiscal years, the books' lock date, and the next year to close with a preview of its result. */
+  @Get()
+  status(@CurrentUser() user: AuthUser) {
+    return this.closing.status(user);
+  }
+
+  /**
+   * Close a fiscal year: posts a closing entry dated the year end that zeroes every revenue and expense
+   * account into retained earnings, and locks the year (no new or voided entries dated in it).
+   * Any earlier unclosed year is swept in.
+   */
+  @Post('close')
+  @HttpCode(200)
+  @Roles('Admin')
+  @ApiBadRequestResponse({ description: 'Not a fiscal year end, year not over, or no retained earnings account' })
+  @ApiConflictResponse({ description: 'The year is already closed' })
+  close(@CurrentUser() user: AuthUser, @Body() dto: CloseFiscalYearDto) {
+    return this.closing.close(user, dto.fiscalYearEnd, dto.retainedEarningsAccountId);
+  }
+
+  /** Reopen the latest closed fiscal year for corrections; its closing entry is voided, not deleted. */
+  @Post(':fiscalYearEnd/reopen')
+  @HttpCode(200)
+  @Roles('Admin')
+  @ApiBadRequestResponse({ description: 'Not the latest closed year' })
+  reopen(@CurrentUser() user: AuthUser, @Param('fiscalYearEnd') fiscalYearEnd: string) {
+    return this.closing.reopen(user, fiscalYearEnd);
+  }
+}
+
 @Module({
-  controllers: [AccountsController, JournalEntriesController, ReportsController],
-  providers: [AccountingService],
+  controllers: [AccountsController, JournalEntriesController, ReportsController, FiscalYearsController],
+  providers: [AccountingService, ClosingService],
 })
 export class AccountingModule {}

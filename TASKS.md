@@ -22,11 +22,11 @@ Legend: ✅ done · ⏳ in progress · ⬜ todo
 | TASK-13 | Jest unit tests + CI | ✅ | Jest (API, 49 tests) + Vitest (web, 28 tests); pure logic extracted into `journal-rules`, `statements`, `billing-math`; GitHub Actions: API / web / integration (Postgres service, smoke under pwsh, E2E in Chrome). `npm test` is now unit tests; smoke moved to `npm run test:smoke` (115/115) |
 | TASK-14 | Swagger / OpenAPI docs | ✅ | Swagger UI `/api/docs`, JSON `/api/docs-json`; Nest CLI plugin builds DTO schemas + summaries from JSDoc; `@Authenticated()` documents bearer/401/402, `@Roles` documents 403; off in production unless `SWAGGER_ENABLED=true`. Unit 52/52, smoke 124/124 |
 | TASK-15 | Production DB user (non-superuser member of `app_user`), rate limiting on login | ✅ | `app_system` role + RLS lookup policies (migration 1691234567897), `db/create-app-login.sql` (NOBYPASSRLS, `app_user` WITH INHERIT FALSE); startup refuses privileged roles in production; account lockout (5/15 min, `login_lockouts`); per-IP throttling on public routes; production CORS; `TRUST_PROXY`. CI runs API as `accounting_app` with `NODE_ENV=production`. Unit 79/79, smoke 129/129 (dev and prod-mode) |
+| TASK-16 | Year-end closing entries (move net income to 3100 retained earnings) | ✅ | Closing entry (`kind = closing`) dated the fiscal year end zeroes revenue/expenses into 3100; closed years locked for posting and voiding; latest year can be reopened (entry voided, kept); income statement excludes closing entries; follows the company fiscal year start month. Migration 1691234567898. Unit 91/91, smoke 153/153, E2E passing |
 
 ## Backlog
 
 | Tag | Task | Status |
 |---|---|---|
-| TASK-16 | Year-end closing entries (move net income to 3100 retained earnings) | ⬜ |
 | TASK-17 | Real payment gateway (Omise or Stripe): `PaymentGateway` implementation + signed webhook endpoint | ⬜ |
 | TASK-18 | Tax invoice / receipt PDF for paid invoices (company tax ID, address) | ⬜ |

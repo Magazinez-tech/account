@@ -273,6 +273,48 @@ try {
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
   check('no horizontal page scroll at 390px', !overflow);
   await page.screenshot({ path: `${shots}13-mobile.png`, fullPage: true });
+
+  // Year-end closing (Admin): last year needs an entry first; the current year can't be closed yet.
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.getByRole('button', { name: 'ออกจากระบบ' }).click();
+  await page.getByLabel('อีเมล').fill('admin@uitest.com');
+  await page.getByLabel('รหัสผ่าน').fill('SecurePass123');
+  await page.getByRole('button', { name: 'เข้าสู่ระบบ' }).click();
+  await page.getByRole('heading', { name: 'สมุดรายวันทั่วไป' }).waitFor();
+  const lastYear = new Date().getFullYear() - 1;
+  await page.getByRole('button', { name: '+ บันทึกรายการ' }).click();
+  await page.getByRole('heading', { name: 'บันทึกรายการบัญชี' }).waitFor();
+  await page.getByLabel('วันที่', { exact: true }).fill(`${lastYear}-12-01`);
+  await page.getByLabel('บัญชี', { exact: true }).nth(0).selectOption({ label: '1000 เงินสด' });
+  await page.getByLabel('เดบิต').nth(0).fill('2000');
+  await page.getByLabel('บัญชี', { exact: true }).nth(1).selectOption({ label: '4100 รายได้จากการให้บริการ' });
+  await page.getByLabel('เครดิต').nth(1).fill('2000');
+  await page.getByRole('button', { name: 'บันทึกรายการ' }).click();
+  await page.getByText(/บันทึกรายการ JV-\d+ แล้ว/).waitFor();
+
+  await page.getByRole('button', { name: 'ปิดบัญชีสิ้นปี' }).click();
+  await page.getByRole('heading', { name: 'ปิดบัญชีสิ้นปี' }).waitFor();
+  check('closing page previews last year: profit 2,000', await seen(page.getByText(`ปีบัญชี 1 ม.ค. ${lastYear + 543} – 31 ธ.ค. ${lastYear + 543}`)) && (await seen(page.getByText('2,000.00').first())));
+  page.once('dialog', (d) => d.accept());
+  await page.getByRole('button', { name: 'ปิดบัญชีปีนี้' }).click();
+  await page.getByText(/^ปิดบัญชีปีบัญชี .* แล้ว$/).waitFor();
+  check('closing recorded with a closing entry', await seen(page.getByRole('button', { name: 'เปิดปีบัญชีอีกครั้ง' })));
+  check('current year cannot be closed yet', await seen(page.getByText('ยังไม่สิ้นปีบัญชี')));
+  await page.screenshot({ path: `${shots}14-closing.png`, fullPage: true });
+
+  await page.getByRole('link', { name: 'สมุดรายวัน' }).click();
+  check('journal shows the closing entry badge', await seen(page.getByText('ปิดบัญชีสิ้นปี', { exact: true }).last()));
+  check('entries in the closed year are locked', await seen(page.getByText('🔒 ปีบัญชีปิดแล้ว')));
+  await page.getByRole('button', { name: '+ บันทึกรายการ' }).click();
+  await page.getByRole('heading', { name: 'บันทึกรายการบัญชี' }).waitFor();
+  await page.getByLabel('วันที่', { exact: true }).fill(`${lastYear}-12-15`);
+  check('new entry dated in the closed year is flagged', await seen(page.getByText(/^ปิดบัญชีถึง .* แล้ว$/)));
+
+  await page.goto(`${BASE}/closing`);
+  page.once('dialog', (d) => d.accept());
+  await page.getByRole('button', { name: 'เปิดปีบัญชีอีกครั้ง' }).click();
+  await page.getByText(/^เปิดปีบัญชี .* อีกครั้งแล้ว$/).waitFor();
+  check('reopen returns the year to closable', await seen(page.getByText('พร้อมปิดบัญชี')));
 } catch (err) {
   failures++;
   console.log('FAIL (exception)', err.message.split('\n')[0]);

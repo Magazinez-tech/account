@@ -5,6 +5,7 @@ import AcceptInvitePage from './pages/AcceptInvitePage';
 import AccountsPage from './pages/AccountsPage';
 import BalanceSheetPage from './pages/BalanceSheetPage';
 import BillingPage from './pages/BillingPage';
+import ClosingPage from './pages/ClosingPage';
 import IncomeStatementPage from './pages/IncomeStatementPage';
 import JournalListPage from './pages/JournalListPage';
 import JournalNewPage from './pages/JournalNewPage';
@@ -153,6 +154,7 @@ export default function App() {
             <Route element={<AdminOnly />}>
               <Route path="/users" element={<UsersPage />} />
               <Route path="/billing" element={<BillingPage />} />
+              <Route path="/closing" element={<ClosingPage />} />
             </Route>
           </Route>
           {/* Outside both guards: an invite link works whether or not someone is signed in on this browser. */}

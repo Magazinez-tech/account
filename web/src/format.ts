@@ -31,6 +31,12 @@ export const fromSatang = (satang: number) => satang / 100;
 const pad = (n: number) => String(n).padStart(2, '0');
 const isoDate = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 
+/** Calendar-date arithmetic on YYYY-MM-DD strings. */
+export function addDays(date: string, days: number): string {
+  const [y, m, d] = date.split('-').map(Number);
+  return isoDate(new Date(y, m - 1, d + days));
+}
+
 /** Local date as YYYY-MM-DD (toISOString would shift to UTC). */
 export const today = () => isoDate(new Date());
 

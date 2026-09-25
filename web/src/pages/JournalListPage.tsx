@@ -1,13 +1,24 @@
 import { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { api, type Account, type JournalEntry } from '../api';
+import { api, type Account, type FiscalYearStatus, type JournalEntry } from '../api';
 import { isAdmin, useMe } from '../auth';
 import { formatDate, formatMoney } from '../format';
 import { Alert, Badge, Button, Card, cx, Field, Input, Loading, PageHeader } from '../ui';
 import { useApi } from '../useApi';
 
 /** onVoid is omitted for users who may not void entries. */
-function EntryCard({ entry, accounts, onVoid }: { entry: JournalEntry; accounts: Map<string, Account>; onVoid?: () => Promise<void> }) {
+function EntryCard({
+  entry,
+  accounts,
+  onVoid,
+  locked,
+}: {
+  entry: JournalEntry;
+  accounts: Map<string, Account>;
+  onVoid?: () => Promise<void>;
+  /** Dated inside a closed fiscal year. */
+  locked: boolean;
+}) {
   const [busy, setBusy] = useState(false);
   const isVoid = entry.status === 'void';
   const total = entry.lines.reduce((s, l) => s + Number(l.debit), 0);
@@ -29,8 +40,10 @@ function EntryCard({ entry, accounts, onVoid }: { entry: JournalEntry; accounts:
         <span className="text-sm text-slate-600">{formatDate(entry.entryDate)}</span>
         {entry.reference && <span className="text-sm text-slate-500">อ้างอิง {entry.reference}</span>}
         {isVoid ? <Badge tone="red">ยกเลิกแล้ว</Badge> : <Badge tone="green">ผ่านรายการ</Badge>}
+        {entry.kind === 'closing' && <Badge tone="slate">ปิดบัญชีสิ้นปี</Badge>}
+        {locked && !isVoid && entry.kind !== 'closing' && <span className="text-xs text-slate-400">🔒 ปีบัญชีปิดแล้ว</span>}
         <span className="ml-auto text-sm font-medium tabular-nums">{formatMoney(total)}</span>
-        {!isVoid && onVoid && (
+        {!isVoid && onVoid && !locked && entry.kind !== 'closing' && (
           <Button variant="danger" className="px-2.5 py-1 text-xs" disabled={busy} onClick={voidEntry}>
             ยกเลิกรายการ
           </Button>
@@ -76,6 +89,8 @@ export default function JournalListPage() {
 
   const entries = useApi<JournalEntry[]>(`/journal-entries${qs ? `?${qs}` : ''}`);
   const accounts = useApi<Account[]>('/accounts');
+  const fiscal = useApi<FiscalYearStatus>('/fiscal-years');
+  const closedThrough = fiscal.data?.closedThrough ?? null;
   const accountMap = new Map((accounts.data ?? []).map((a) => [a.id, a]));
 
   async function voidEntry(id: string) {
@@ -93,7 +108,16 @@ export default function JournalListPage() {
       <PageHeader
         title="สมุดรายวันทั่วไป"
         subtitle="แสดงล่าสุด 200 รายการ"
-        actions={<Button onClick={() => navigate('/journal/new')}>+ บันทึกรายการ</Button>}
+        actions={
+          <>
+            {canVoid && (
+              <Button variant="secondary" onClick={() => navigate('/closing')}>
+                ปิดบัญชีสิ้นปี
+              </Button>
+            )}
+            <Button onClick={() => navigate('/journal/new')}>+ บันทึกรายการ</Button>
+          </>
+        }
       />
       <div className="mb-6 flex flex-wrap items-end gap-3">
         <Field label="ตั้งแต่วันที่">
@@ -123,7 +147,15 @@ export default function JournalListPage() {
             ยังไม่มีรายการ{from || to ? 'ในช่วงวันที่นี้' : ''}
           </Card>
         )}
-        {entries.data?.map((e) => <EntryCard key={e.id} entry={e} accounts={accountMap} onVoid={canVoid ? () => voidEntry(e.id) : undefined} />)}
+        {entries.data?.map((e) => (
+          <EntryCard
+            key={e.id}
+            entry={e}
+            accounts={accountMap}
+            locked={closedThrough !== null && e.entryDate <= closedThrough}
+            onVoid={canVoid ? () => voidEntry(e.id) : undefined}
+          />
+        ))}
       </div>
     </>
   );
