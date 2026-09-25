@@ -9,13 +9,23 @@ const shots = fileURLToPath(new URL('./screenshots/', import.meta.url));
 mkdirSync(shots, { recursive: true });
 const slug = `ui-test-${Math.random().toString(36).slice(2, 8)}`;
 let failures = 0;
+/** On GitHub Actions, failures also become annotations so they show on the run summary without opening the log. */
+const annotate = (message) => {
+  if (process.env.GITHUB_ACTIONS) console.log(`::error title=Browser E2E::${String(message).replace(/\r?\n/g, '%0A').slice(0, 1500)}`);
+};
 const check = (name, ok, detail = '') => {
-  if (!ok) failures++;
+  if (!ok) {
+    failures++;
+    annotate(`${name} ${detail}`);
+  }
   console.log(`${ok ? 'PASS' : 'FAIL'} ${name} ${ok ? '' : detail}`);
 };
 
 // Installed browser to drive: msedge locally (ships with Windows), chrome on CI runners.
-const browser = await chromium.launch({ channel: process.env.E2E_BROWSER ?? 'msedge', headless: true });
+const browser = await chromium.launch({ channel: process.env.E2E_BROWSER ?? 'msedge', headless: true }).catch((err) => {
+  annotate(`could not launch ${process.env.E2E_BROWSER ?? 'msedge'}: ${err.message.split('\n')[0]}`);
+  throw err;
+});
 const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
 const consoleErrors = [];
 page.on('console', (m) => m.type() === 'error' && consoleErrors.push(m.text()));
@@ -249,6 +259,7 @@ try {
 } catch (err) {
   failures++;
   console.log('FAIL (exception)', err.message.split('\n')[0]);
+  annotate(`exception at ${page.url()}: ${err.message.split('\n').slice(0, 6).join(' | ')}`);
   await page.screenshot({ path: `${shots}error.png`, fullPage: true });
 } finally {
   // Expected network errors: 401 (bad token/password), 409 (duplicate account), 404 (used invite link).
