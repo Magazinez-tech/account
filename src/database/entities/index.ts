@@ -1,5 +1,5 @@
 import { Account, JournalEntry, JournalLine } from './accounting.entities';
-import { Invoice, Subscription, SubscriptionPlan, SystemConfig } from './billing.entities';
+import { Invoice, Payment, Subscription, SubscriptionPlan, SystemConfig } from './billing.entities';
 import { Company, Role, Tenant, User, UserInvitation, UserRole } from './tenancy.entities';
 
 export * from './accounting.entities';
@@ -19,5 +19,6 @@ export const ENTITIES = [
   SubscriptionPlan,
   Subscription,
   Invoice,
+  Payment,
   SystemConfig,
 ];

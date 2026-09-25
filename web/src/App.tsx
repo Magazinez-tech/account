@@ -1,13 +1,15 @@
-import { BrowserRouter, Navigate, NavLink, Outlet, Route, Routes, useLocation } from 'react-router-dom';
-import type { TenantDetail } from './api';
+import { BrowserRouter, Link, Navigate, NavLink, Outlet, Route, Routes, useLocation } from 'react-router-dom';
+import type { BillingStatus, SubscriptionStatus, TenantDetail } from './api';
 import { AuthProvider, isAdmin, useAuth, useMe } from './auth';
 import AcceptInvitePage from './pages/AcceptInvitePage';
 import AccountsPage from './pages/AccountsPage';
 import BalanceSheetPage from './pages/BalanceSheetPage';
+import BillingPage from './pages/BillingPage';
 import IncomeStatementPage from './pages/IncomeStatementPage';
 import JournalListPage from './pages/JournalListPage';
 import JournalNewPage from './pages/JournalNewPage';
 import LoginPage from './pages/LoginPage';
+import MockCheckoutPage from './pages/MockCheckoutPage';
 import SignupPage from './pages/SignupPage';
 import TrialBalancePage from './pages/TrialBalancePage';
 import UsersPage from './pages/UsersPage';
@@ -39,9 +41,29 @@ const NAV = [
   { to: '/accounts', label: 'ผังบัญชี' },
   { to: '/trial-balance', label: 'งบทดลอง' },
   { to: '/income-statement', label: 'งบกำไรขาดทุน' },
-  { to: '/balance-sheet', label: 'งบแสดงฐานะการเงิน' },
+  { to: '/balance-sheet', label: 'งบฐานะการเงิน' },
   { to: '/users', label: 'ผู้ใช้งาน', adminOnly: true },
+  { to: '/billing', label: 'การชำระเงิน', adminOnly: true },
 ];
+
+const READ_ONLY_REASON: Partial<Record<SubscriptionStatus, string>> = {
+  expired: 'หมดช่วงทดลองใช้แล้ว',
+  past_due: 'เลยกำหนดชำระค่าบริการ',
+  canceled: 'ยกเลิกแพ็กเกจแล้ว',
+};
+
+const daysUntil = (iso: string) => Math.max(0, Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000));
+
+/** One-line plan summary under the company name. */
+function planLine(b: BillingStatus): string {
+  const plan = b.plan?.name ?? '';
+  if (b.status === 'trialing' && b.trialEndsAt) return `ทดลองใช้ ${plan} · เหลือ ${daysUntil(b.trialEndsAt)} วัน`;
+  if (b.status === 'active' && b.currentPeriodEnd) {
+    const end = new Date(b.currentPeriodEnd).toLocaleDateString('th-TH');
+    return b.cancelAtPeriodEnd ? `${plan} · ใช้ได้ถึง ${end}` : `${plan} · ต่ออายุ ${end}`;
+  }
+  return `${plan} · ${READ_ONLY_REASON[b.status] ?? ''}`;
+}
 
 /** Non-admins who land on an admin page (e.g. right after demoting themselves) go to the journal. */
 function AdminOnly() {
@@ -53,6 +75,7 @@ function Layout() {
   const { logout } = useAuth();
   const nav = NAV.filter((n) => !n.adminOnly || isAdmin(me));
   const { data: tenant } = useApi<TenantDetail>(`/tenants/${me.tenantId}`);
+  const { data: billing } = useApi<BillingStatus>('/billing/status');
 
   return (
     <div className="min-h-screen">
@@ -60,11 +83,7 @@ function Layout() {
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3">
           <div className="min-w-0">
             <div className="truncate font-semibold">{tenant?.company?.name ?? tenant?.name ?? '…'}</div>
-            {tenant?.subscription?.status === 'trialing' && tenant.subscription.trialEndsAt && (
-              <div className="text-xs text-slate-500">
-                ทดลองใช้ถึง {new Date(tenant.subscription.trialEndsAt).toLocaleDateString('th-TH')}
-              </div>
-            )}
+            {billing && <div className="text-xs text-slate-500">{planLine(billing)}</div>}
           </div>
           <nav className="order-last flex w-full gap-1 overflow-x-auto sm:order-none sm:w-auto">
             {nav.map((n) => (
@@ -83,7 +102,7 @@ function Layout() {
             ))}
           </nav>
           <div className="ml-auto flex items-center gap-3 text-sm">
-            <span className="hidden text-slate-600 md:inline">
+            <span className="hidden max-w-44 truncate text-slate-600 md:inline" title={`${me.fullName} · ${me.roles.join(', ')}`}>
               {me.fullName} <span className="text-slate-400">· {me.roles.join(', ')}</span>
             </span>
             <Button variant="ghost" onClick={logout}>
@@ -92,6 +111,22 @@ function Layout() {
           </div>
         </div>
       </header>
+      {billing?.readOnly && (
+        <div role="status" className="border-b border-amber-200 bg-amber-50">
+          <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2.5 text-sm text-amber-900">
+            <span>
+              {READ_ONLY_REASON[billing.status] ?? 'บัญชีไม่ได้ใช้งาน'} · ดูข้อมูลได้ แต่บันทึกหรือแก้ไขไม่ได้จนกว่าจะชำระค่าบริการ
+            </span>
+            {isAdmin(me) ? (
+              <Link to="/billing" className="font-semibold underline underline-offset-2">
+                ชำระค่าบริการ
+              </Link>
+            ) : (
+              <span className="font-medium">กรุณาติดต่อผู้ดูแลระบบของบริษัท</span>
+            )}
+          </div>
+        </div>
+      )}
       <main className="mx-auto max-w-6xl px-4 py-8">
         <Outlet />
       </main>
@@ -117,10 +152,13 @@ export default function App() {
             <Route path="/balance-sheet" element={<BalanceSheetPage />} />
             <Route element={<AdminOnly />}>
               <Route path="/users" element={<UsersPage />} />
+              <Route path="/billing" element={<BillingPage />} />
             </Route>
           </Route>
           {/* Outside both guards: an invite link works whether or not someone is signed in on this browser. */}
           <Route path="/invite/:token" element={<AcceptInvitePage />} />
+          {/* Stands in for the payment provider's hosted page (PAYMENT_PROVIDER=mock). */}
+          <Route path="/billing/mock-checkout/:chargeId" element={<MockCheckoutPage />} />
           <Route path="*" element={<Navigate to="/journal" replace />} />
         </Routes>
       </BrowserRouter>

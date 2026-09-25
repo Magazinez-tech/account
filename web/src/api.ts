@@ -109,6 +109,37 @@ export interface InvitePreview {
   tenantSlug: string;
 }
 
+export type SubscriptionStatus = 'trialing' | 'active' | 'past_due' | 'canceled' | 'expired';
+
+export interface BillingStatus {
+  status: SubscriptionStatus;
+  /** Trial over or unpaid: the API refuses writes (402) except billing. */
+  readOnly: boolean;
+  plan: { code: string; name: string; maxUsers: number | null } | null;
+  trialEndsAt: string | null;
+  currentPeriodEnd: string | null;
+  cancelAtPeriodEnd: boolean;
+}
+
+export interface BillingOverview extends BillingStatus {
+  vatRate: number;
+  plans: { code: string; name: string; maxUsers: number | null; priceMonthly: number; vatAmount: number; total: number }[];
+  invoices: {
+    id: string;
+    invoiceNo: string;
+    description: string | null;
+    subtotal: number;
+    vatAmount: number;
+    amount: number;
+    status: 'draft' | 'open' | 'paid' | 'void';
+    paymentStatus: 'pending' | 'succeeded' | 'failed' | null;
+    issuedAt: string | null;
+    paidAt: string | null;
+    periodStart: string | null;
+    periodEnd: string | null;
+  }[];
+}
+
 export interface Tokens {
   accessToken: string;
   refreshToken: string;
@@ -152,6 +183,9 @@ const THAI_MESSAGES: Record<string, string> = {
   'Invitation is invalid or has expired': 'ลิงก์คำเชิญไม่ถูกต้อง ถูกยกเลิก หรือหมดอายุแล้ว',
   'At least one active Admin is required': 'ต้องมีผู้ดูแลระบบ (Admin) ที่ใช้งานอยู่อย่างน้อย 1 คน',
   'You cannot deactivate yourself': 'ปิดการใช้งานบัญชีของตัวเองไม่ได้',
+  'Subscription inactive': 'บัญชีอยู่ในโหมดอ่านอย่างเดียว ต้องชำระค่าบริการก่อนจึงจะบันทึกหรือแก้ไขข้อมูลได้',
+  'Plan user limit reached': 'จำนวนผู้ใช้ครบตามแพ็กเกจแล้ว อัปเกรดแพ็กเกจเพื่อเพิ่มผู้ใช้',
+  'Charge not found': 'ไม่พบรายการชำระเงิน',
 };
 
 async function errorFrom(res: Response): Promise<ApiError> {

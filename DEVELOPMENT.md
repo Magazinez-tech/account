@@ -29,6 +29,13 @@ npm run typeorm migration:run
 - URL: http://localhost:3000
 - API Base: http://localhost:3000/api/v1
 
+## Billing (dev)
+- `.env`: `PAYMENT_PROVIDER=mock` and `APP_URL=http://localhost:5173` (defaults if unset).
+- Checkout sends you to `/billing/mock-checkout/<chargeId>` in the web app; choose success or failure there.
+- To test expiry, move dates into the past, e.g.
+  `UPDATE subscriptions SET trial_ends_at = now() - interval '1 day' WHERE tenant_id = '...';`
+  The tenant turns read-only immediately (status is derived from dates; there is no scheduler).
+
 ## Web App
 ```powershell
 cd web

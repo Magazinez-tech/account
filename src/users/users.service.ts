@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
 import { createHash, randomBytes } from 'crypto';
 import { EntityManager, IsNull, MoreThan } from 'typeorm';
@@ -30,7 +30,9 @@ export class UsersService {
     if (dto.isActive === false && id === auth.userId) throw new BadRequestException('You cannot deactivate yourself');
 
     return this.db.run(auth.tenantId, async (m) => {
-      if (!(await m.getRepository(User).existsBy({ id }))) throw new NotFoundException('User not found');
+      const target = await m.getRepository(User).findOneBy({ id });
+      if (!target) throw new NotFoundException('User not found');
+      if (dto.isActive === true && !target.isActive) await this.assertSeatAvailable(m, false);
 
       if (dto.role) {
         const role = await this.roleByName(m, dto.role);
@@ -77,6 +79,26 @@ export class UsersService {
     }));
   }
 
+  /**
+   * Plan seat limit: active users, plus open invitations when inviting (an accepted invite takes a
+   * seat). Plans with max_users NULL are unlimited.
+   */
+  private async assertSeatAvailable(m: EntityManager, countInvitations: boolean) {
+    const [plan]: { max_users: number | null }[] = await m.query(
+      `SELECT p.max_users FROM subscriptions s JOIN subscription_plans p ON p.id = s.plan_id
+        ORDER BY s.created_at DESC LIMIT 1`,
+    );
+    if (!plan || plan.max_users === null) return;
+    const [{ used }] = await m.query(
+      `SELECT (SELECT count(*) FROM users WHERE is_active)
+            + CASE WHEN $1 THEN (SELECT count(*) FROM user_invitations
+                                  WHERE accepted_at IS NULL AND revoked_at IS NULL AND expires_at > now())
+                   ELSE 0 END AS used`,
+      [countInvitations],
+    );
+    if (Number(used) >= plan.max_users) throw new ForbiddenException('Plan user limit reached');
+  }
+
   private async roleByName(m: EntityManager, name: RoleName) {
     const role = await m.getRepository(Role).findOneBy({ name });
     if (!role) throw new BadRequestException(`Role ${name} not found`);
@@ -117,6 +139,7 @@ export class UsersService {
         }
         const role = await this.roleByName(m, dto.role);
         await m.getRepository(UserInvitation).update({ email, acceptedAt: IsNull(), revokedAt: IsNull() }, { revokedAt: new Date() });
+        await this.assertSeatAvailable(m, true);
 
         const invitation = await m.getRepository(UserInvitation).save({
           tenantId: auth.tenantId,

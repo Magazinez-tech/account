@@ -82,6 +82,23 @@ export class Invoice {
   @Column({ name: 'invoice_no' })
   invoiceNo: string;
 
+  @Column({ name: 'plan_id', type: 'uuid', nullable: true })
+  planId: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  description: string | null;
+
+  /** Price before VAT. */
+  @Column({ type: 'numeric', precision: 12, scale: 2, nullable: true })
+  subtotal: string | null;
+
+  @Column({ name: 'vat_rate', type: 'numeric', precision: 5, scale: 2, nullable: true })
+  vatRate: string | null;
+
+  @Column({ name: 'vat_amount', type: 'numeric', precision: 12, scale: 2, nullable: true })
+  vatAmount: string | null;
+
+  /** Total including VAT. */
   @Column({ type: 'numeric', precision: 12, scale: 2 })
   amount: string;
 
@@ -90,6 +107,13 @@ export class Invoice {
 
   @Column({ type: 'varchar', default: 'draft' })
   status: 'draft' | 'open' | 'paid' | 'void';
+
+  /** Service period this invoice paid for; set when the payment succeeds. */
+  @Column({ name: 'period_start', type: 'timestamptz', nullable: true })
+  periodStart: Date | null;
+
+  @Column({ name: 'period_end', type: 'timestamptz', nullable: true })
+  periodEnd: Date | null;
 
   @Column({ name: 'issued_at', type: 'timestamptz', nullable: true })
   issuedAt: Date | null;
@@ -102,6 +126,44 @@ export class Invoice {
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
+}
+
+export type PaymentStatus = 'pending' | 'succeeded' | 'failed';
+
+@Entity('payments')
+export class Payment {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @Column({ name: 'tenant_id', type: 'uuid' })
+  tenantId: string;
+
+  @Column({ name: 'invoice_id', type: 'uuid' })
+  invoiceId: string;
+
+  @Column()
+  provider: string;
+
+  @Column({ name: 'provider_charge_id' })
+  providerChargeId: string;
+
+  @Column({ type: 'numeric', precision: 12, scale: 2 })
+  amount: string;
+
+  @Column({ default: 'THB' })
+  currency: string;
+
+  @Column({ type: 'varchar', default: 'pending' })
+  status: PaymentStatus;
+
+  @Column({ name: 'failure_message', type: 'text', nullable: true })
+  failureMessage: string | null;
+
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  createdAt: Date;
+
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
+  updatedAt: Date;
 }
 
 @Entity('system_config')

@@ -18,13 +18,15 @@ Legend: ✅ done · ⏳ in progress · ⬜ todo
 | TASK-9 | Role-based permissions (Admin vs User) on write endpoints | ✅ | `@Roles('Admin')` on create account + void; roles read from DB per request; UI hides Admin-only actions. `npm test` 47/47, `npm run e2e` 30/30 |
 | TASK-10 | Financial statements: income statement, balance sheet | ✅ | Shared per-account balance query; current earnings shown in equity until closing entries exist; default period = fiscal year. `npm test` 56/56, `npm run e2e` 36/36 |
 | TASK-11 | User management: invite users, assign roles | ✅ | One-time invite links (hashed, 7 days); change role, deactivate/reactivate; last active Admin protected; JWT guard checks active flag + roles per request. Migration 1691234567895. `npm test` 84/84, `npm run e2e` 46/46 |
+| TASK-12 | Subscription & billing integration (invoices, payment gateway) | ✅ | `PaymentGateway` interface + mock gateway; invoices with VAT, payments table (migration 1691234567896); idempotent settlement; trial/unpaid → read-only (402 on writes); plan user limits; billing page + banner. `npm test` 115/115, `npm run e2e` 54/54 |
 
 ## Backlog
 
 | Tag | Task | Status |
 |---|---|---|
-| TASK-12 | Subscription & billing integration (invoices, payment gateway) | ⬜ |
 | TASK-13 | Jest unit tests + CI | ⬜ |
 | TASK-14 | Swagger / OpenAPI docs | ⬜ |
 | TASK-15 | Production DB user (non-superuser member of `app_user`), rate limiting on login | ⬜ |
 | TASK-16 | Year-end closing entries (move net income to 3100 retained earnings) | ⬜ |
+| TASK-17 | Real payment gateway (Omise or Stripe): `PaymentGateway` implementation + signed webhook endpoint | ⬜ |
+| TASK-18 | Tax invoice / receipt PDF for paid invoices (company tax ID, address) | ⬜ |

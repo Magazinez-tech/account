@@ -134,6 +134,29 @@ try {
   await page.getByRole('heading', { name: 'สมุดรายวันทั่วไป' }).waitFor();
   check('login works', true);
 
+  // Billing: trial -> failed payment -> paid Pro, through the mock gateway
+  await page.getByText(/^ทดลองใช้ Starter · เหลือ 1[34] วัน$/).waitFor();
+  check('header shows trial days left', true);
+  await page.getByRole('link', { name: 'การชำระเงิน' }).click();
+  await page.getByRole('heading', { name: 'แพ็กเกจ', exact: true }).waitFor();
+  check('billing page lists 3 plans with VAT', (await page.getByText(/\+ VAT 7%/).count()) === 3);
+  await page.getByRole('button', { name: 'เปลี่ยนเป็นแพ็กเกจนี้' }).first().click(); // Pro (plans sorted by price)
+  await page.getByText('Mock Payment Gateway').waitFor();
+  check('redirected to the gateway with the VAT-inclusive amount', (await page.locator('body').innerText()).includes('845.30'));
+  await page.screenshot({ path: `${shots}07-mock-gateway.png` });
+  await page.getByRole('button', { name: 'จำลองการชำระไม่สำเร็จ' }).click();
+  await page.getByText(/ชำระเงินใบแจ้งหนี้ INV-000001 ไม่สำเร็จ/).waitFor();
+  check('declined payment reported on return', true);
+  await page.getByRole('button', { name: 'เปลี่ยนเป็นแพ็กเกจนี้' }).first().click();
+  await page.getByRole('button', { name: 'ชำระเงินสำเร็จ' }).click();
+  await page.getByText(/ชำระเงินใบแจ้งหนี้ INV-000002 สำเร็จ/).waitFor();
+  check('successful payment reported on return', true);
+  check('Pro is now the current plan and active', (await page.getByText('ปัจจุบัน', { exact: true }).count()) === 1 && (await page.getByText('ใช้งาน', { exact: true }).first().isVisible()));
+  check('invoice history shows paid + void', (await page.getByText('ชำระแล้ว', { exact: true }).count()) === 1 && (await page.getByText('ยกเลิก', { exact: true }).count()) === 1);
+  await page.getByText(/^Pro · ต่ออายุ/).waitFor();
+  check('header shows the paid plan', true);
+  await page.screenshot({ path: `${shots}07-billing.png`, fullPage: true });
+
   // Expired access token -> refresh token keeps the session
   await page.evaluate(() => localStorage.setItem('acc.accessToken', 'garbage'));
   await page.getByRole('link', { name: 'ผังบัญชี' }).click();
@@ -206,7 +229,7 @@ try {
   await page.getByRole('button', { name: 'ทั้งหมด' }).click();
   check('"all time" preset clears dates', (await page.getByLabel('ตั้งแต่วันที่').inputValue()) === '');
 
-  await page.getByRole('link', { name: 'งบแสดงฐานะการเงิน' }).click();
+  await page.getByRole('link', { name: 'งบฐานะการเงิน' }).click();
   await page.getByText('สินทรัพย์ = หนี้สิน + ส่วนของเจ้าของ').waitFor();
   const bs = await page.locator('main').innerText();
   check('balance sheet shows current-period loss', bs.includes('กำไร (ขาดทุน) งวดปัจจุบัน') && (bs.match(/\(5,000\.00\)/g) ?? []).length >= 4, bs);

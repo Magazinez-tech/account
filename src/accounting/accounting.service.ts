@@ -5,9 +5,7 @@ import { Account, AccountType, JournalEntry, JournalLine } from '../database/ent
 import { isUniqueViolation, TenantDb } from '../database/tenant-db.service';
 import { CreateAccountDto, CreateJournalEntryDto, DateRangeQuery } from './accounting.dto';
 
-/** Money is summed in satang (integer) so 0.1 + 0.2 style float errors can't unbalance an entry. */
-const toSatang = (amount: number | string | undefined) => Math.round(Number(amount ?? 0) * 100);
-const fromSatang = (satang: number) => satang / 100;
+import { fromSatang, toSatang } from '../common/money';
 
 @Injectable()
 export class AccountingService {
