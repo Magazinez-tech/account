@@ -49,7 +49,8 @@ Vite + React 19 + TypeScript + Tailwind 4 + React Router. Start the API first.
 | `npm run dev` | Dev server with HMR |
 | `npm run build` | Typecheck and build to `web/dist/` |
 | `npm run lint` | oxlint |
-| `npm run e2e` | Browser smoke test in headless Edge (API and dev server must be running). Screenshots go to `web/e2e/screenshots/` |
+| `npm test` | Vitest unit tests (`src/**/*.test.ts`, jsdom) |
+| `npm run e2e` | Browser smoke test in headless Edge, or `E2E_BROWSER=chrome` (API and dev server must be running). Screenshots go to `web/e2e/screenshots/` |
 
 If the dev server serves stale code after files are rewritten outside the editor (e.g. `sed -i`), touch the file or restart `npm run dev`; the Windows file watcher can miss replaced files.
 
@@ -69,7 +70,9 @@ The smoke test creates fresh tenants on every run (slug `test-company-<random>`)
 | `npm run typeorm migration:run` | Apply migrations |
 | `npm run typeorm migration:show` | Migration status |
 | `npm run typeorm migration:revert` | Roll back the last migration |
-| `npm test` | End-to-end smoke test (server must be running) |
+| `npm test` | Jest unit tests (`src/**/*.spec.ts`, no database needed) |
+| `npm run test:watch` | Jest in watch mode |
+| `npm run test:smoke` | End-to-end API smoke test (server must be running; uses psql for RLS/expiry checks) |
 
 ## How tenant isolation works
 - `TenantDb.run(tenantId, fn)` in `src/database/tenant-db.service.ts` opens a transaction, runs
@@ -81,6 +84,23 @@ The smoke test creates fresh tenants on every run (slug `test-company-<random>`)
   belong to the tenant, as `AccountingService` does.
 - The `postgres` superuser bypasses RLS, so the app only gets isolation through `SET ROLE app_user`.
   In production, connect as a non-superuser that is a member of `app_user`.
+
+## Tests and CI
+| Layer | Where | Runs |
+|---|---|---|
+| API unit (Jest) | `src/**/*.spec.ts` | Pure logic: satang math, double-entry rules, statements, billing dates/VAT, subscription access, JWT and role guards |
+| Web unit (Vitest) | `web/src/**/*.test.ts` | Amount parsing/formatting, fiscal-year dates, API client (token refresh, Thai error messages) |
+| API smoke (PowerShell) | `tests/smoke-test.ps1` | Every endpoint against a real database, incl. RLS and subscription expiry |
+| Browser E2E (Playwright) | `web/e2e/smoke.mjs` | Signup → journal → reports → invite → billing through the UI |
+
+GitHub Actions (`.github/workflows/ci.yml`) runs on every push to `main` and every PR:
+1. **API**: `npm ci`, build, unit tests.
+2. **Web**: lint, unit tests, build.
+3. **Integration** (after 1 and 2): PostgreSQL 16 service container, migrations, API (`start:prod`) and Vite
+   in the background, then the smoke test under `pwsh` and the browser E2E in Chrome. On failure, screenshots
+   and server logs are uploaded as the `integration-artifacts` artifact.
+
+Jest runs with `--experimental-vm-modules` because NestJS 12 ships as ES modules.
 
 ## Troubleshooting
 **Port 3000 in use**

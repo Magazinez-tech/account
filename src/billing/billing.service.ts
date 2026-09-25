@@ -5,22 +5,12 @@ import { AuthUser } from '../auth/jwt-auth.guard';
 import { fromSatang, toSatang } from '../common/money';
 import { Invoice, Payment, Subscription, SubscriptionPlan, SystemConfig, Tenant } from '../database/entities';
 import { TenantDb } from '../database/tenant-db.service';
+import { addMonth, priceWithVat } from './billing-math';
 import { PAYMENT_GATEWAY, PaymentGateway } from './payment-gateway';
 import { subscriptionAccess } from './subscription-access';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const INVOICE_DUE_DAYS = 7;
-
-/** Same day next month, clamped to the month's last day (Jan 31 -> Feb 28). */
-function addMonth(d: Date): Date {
-  const next = new Date(d);
-  const day = next.getUTCDate();
-  next.setUTCDate(1);
-  next.setUTCMonth(next.getUTCMonth() + 1);
-  const lastDay = new Date(Date.UTC(next.getUTCFullYear(), next.getUTCMonth() + 1, 0)).getUTCDate();
-  next.setUTCDate(Math.min(day, lastDay));
-  return next;
-}
 
 interface InvoiceRow {
   id: string;
@@ -83,7 +73,7 @@ export class BillingService {
         ...(await this.statusIn(m)),
         vatRate,
         plans: plans.map((p) => {
-          const price = this.priceWithVat(toSatang(p.priceMonthly), vatRate);
+          const price = priceWithVat(toSatang(p.priceMonthly), vatRate);
           return {
             code: p.code,
             name: p.name,
@@ -116,11 +106,6 @@ export class BillingService {
     return Number(row?.value ?? 7);
   }
 
-  private priceWithVat(subtotal: number, vatRate: number) {
-    const vat = Math.round((subtotal * vatRate) / 100);
-    return { subtotal, vat, total: subtotal + vat };
-  }
-
   // ---- Checkout -----------------------------------------------------------
 
   /**
@@ -135,7 +120,7 @@ export class BillingService {
       await m.getRepository(Invoice).update({ status: 'open' }, { status: 'void' });
 
       const vatRate = await this.vatRate(m);
-      const price = this.priceWithVat(toSatang(plan.priceMonthly), vatRate);
+      const price = priceWithVat(toSatang(plan.priceMonthly), vatRate);
       const sub = await this.latestSubscription(m);
 
       // Serialize numbering per tenant, like journal entries.

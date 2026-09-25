@@ -1,6 +1,7 @@
 # End-to-end smoke test for the running API (checklist Phases 8-10 + accounting).
-# Usage: start the server (npm run start:dev), then: npm test
-# Works on Windows PowerShell 5.1+. Each run creates fresh tenants with a random suffix.
+# Usage: start the server (npm run start:dev), then: npm run test:smoke
+# Runs on Windows PowerShell 5.1 and PowerShell 7 (Windows/Linux, used by CI). Each run creates fresh tenants
+# with a random suffix. psql is found via $env:PSQL, PATH, or the default Windows install path.
 param([string]$BaseUrl = 'http://localhost:3000')
 
 $ErrorActionPreference = 'Stop'
@@ -19,7 +20,8 @@ function Invoke-Api([string]$Method, [string]$Path, $Body = $null, [string]$Toke
         $res = Invoke-WebRequest @params
         $status = [int]$res.StatusCode
         $raw = [Text.Encoding]::UTF8.GetString($res.RawContentStream.ToArray())
-    } catch [System.Net.WebException] {
+    } catch {
+        # PS 5.1 throws WebException, PS 7 HttpResponseException; both carry the response.
         $resp = $_.Exception.Response
         if (-not $resp) { throw }
         $status = [int]$resp.StatusCode
@@ -300,8 +302,10 @@ Check 'reactivated user works again' ($r.Status -eq 200)
 $r = Invoke-Api PATCH "/api/v1/users/$clerkId" @{ role = 'Admin' } $tokenB
 Check "tenant B admin cannot change tenant A's user -> 404" ($r.Status -eq 404)
 
-$pgBin = 'C:\Program Files\PostgreSQL\16\bin\psql.exe'
-$env:PGPASSWORD = 'postgres'
+$pgBin = $env:PSQL
+if (-not $pgBin) { $pgBin = (Get-Command psql -ErrorAction SilentlyContinue).Source }
+if (-not $pgBin -and (Test-Path 'C:\Program Files\PostgreSQL\16\bin\psql.exe')) { $pgBin = 'C:\Program Files\PostgreSQL\16\bin\psql.exe' }
+if (-not $env:PGPASSWORD) { $env:PGPASSWORD = 'postgres' }
 
 function Invoke-Sql([string]$Sql) {
     & $pgBin -U postgres -h localhost -d accounting_saas_dev -q -c $Sql | Out-Null
@@ -369,7 +373,7 @@ Check 'Starter: invites up to 3 seats' ($r.Status -eq 201)
 $r = Invoke-Api POST '/api/v1/invitations' @{ email = 'b3@another.com'; fullName = 'B Three'; role = 'User' } $tokenB
 Check 'Starter: 4th seat -> 403 plan limit' ($r.Status -eq 403 -and $r.Body.message -eq 'Plan user limit reached') "(got $($r.Status): $($r.Body.message))"
 
-if (Test-Path $pgBin) {
+if ($pgBin) {
     Invoke-Sql "UPDATE subscriptions SET trial_ends_at = now() - interval '1 day' WHERE tenant_id = '$tenantB'"
     $r = Invoke-Api GET '/api/v1/billing/status' $null $tokenB
     Check 'trial over -> expired, read-only' ($r.Body.status -eq 'expired' -and $r.Body.readOnly -eq $true)
@@ -405,7 +409,7 @@ if (Test-Path $pgBin) {
 }
 
 Write-Host "`n10.3 Row-Level Security (direct SQL as app_user)"
-if (Test-Path $pgBin) {
+if ($pgBin) {
     $noRls = & $pgBin -U postgres -h localhost -d accounting_saas_dev -tA -c "SELECT count(*) FROM pg_tables WHERE schemaname='public' AND tablename <> 'typeorm_migrations' AND NOT rowsecurity"
     Check 'RLS enabled on every app table' ($noRls.Trim() -eq '0') "($noRls tables without RLS)"
     $sql = "BEGIN; SET LOCAL ROLE app_user; SELECT set_config('app.tenant_id', '$tenantB', true); SELECT count(*) FROM journal_entries WHERE tenant_id = '$tenantA'; ROLLBACK;"

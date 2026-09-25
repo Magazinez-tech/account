@@ -1,5 +1,7 @@
 # Accounting SaaS
 
+[![CI](https://github.com/Magazinez-tech/account/actions/workflows/ci.yml/badge.svg)](https://github.com/Magazinez-tech/account/actions/workflows/ci.yml)
+
 Multi-tenant double-entry accounting API built with NestJS, TypeORM and PostgreSQL.
 
 - **Tenancy:** each signup creates a tenant with its own company, roles, admin user, trial subscription and a Thai SME chart of accounts.

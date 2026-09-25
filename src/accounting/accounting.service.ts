@@ -1,11 +1,12 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Between, EntityManager, FindOptionsWhere, In, LessThanOrEqual, MoreThanOrEqual } from 'typeorm';
 import { AuthUser } from '../auth/jwt-auth.guard';
+import { fromSatang, toSatang } from '../common/money';
 import { Account, AccountType, JournalEntry, JournalLine } from '../database/entities';
 import { isUniqueViolation, TenantDb } from '../database/tenant-db.service';
 import { CreateAccountDto, CreateJournalEntryDto, DateRangeQuery } from './accounting.dto';
-
-import { fromSatang, toSatang } from '../common/money';
+import { toBalancedLines } from './journal-rules';
+import { AccountBalance, buildBalanceSheet, buildIncomeStatement, buildTrialBalance } from './statements';
 
 @Injectable()
 export class AccountingService {
@@ -36,20 +37,7 @@ export class AccountingService {
   // ---- Journal entries --------------------------------------------------
 
   async createEntry(user: AuthUser, dto: CreateJournalEntryDto) {
-    const lines = dto.lines.map((l, i) => ({ ...l, lineNo: i + 1, debit: toSatang(l.debit), credit: toSatang(l.credit) }));
-
-    for (const l of lines) {
-      if ((l.debit > 0) === (l.credit > 0)) {
-        throw new BadRequestException(`Line ${l.lineNo}: enter either a debit or a credit amount, not both or neither`);
-      }
-    }
-    const totalDebit = lines.reduce((s, l) => s + l.debit, 0);
-    const totalCredit = lines.reduce((s, l) => s + l.credit, 0);
-    if (totalDebit !== totalCredit) {
-      throw new BadRequestException(
-        `Entry is not balanced: debit ${fromSatang(totalDebit).toFixed(2)} ≠ credit ${fromSatang(totalCredit).toFixed(2)}`,
-      );
-    }
+    const lines = toBalancedLines(dto.lines);
 
     const entryId = await this.db.run(user.tenantId, async (m) => {
       const accountIds = [...new Set(lines.map((l) => l.accountId))];
@@ -166,82 +154,15 @@ export class AccountingService {
   }
 
   async trialBalance(user: AuthUser, asOf?: string) {
-    let totalDebit = 0;
-    let totalCredit = 0;
-    const accounts = (await this.accountBalances(user, { to: asOf }))
-      .filter((a) => a.net !== 0)
-      .map(({ net, ...a }) => {
-        const debit = Math.max(net, 0);
-        const credit = Math.max(-net, 0);
-        totalDebit += debit;
-        totalCredit += credit;
-        return { ...a, debit: fromSatang(debit), credit: fromSatang(credit) };
-      });
-
-    return {
-      asOf: asOf ?? null,
-      accounts,
-      totalDebit: fromSatang(totalDebit),
-      totalCredit: fromSatang(totalCredit),
-      balanced: totalDebit === totalCredit,
-    };
+    return buildTrialBalance(await this.accountBalances(user, { to: asOf }), asOf);
   }
 
-  /** Revenue and expenses for a period. Amounts are positive in each section's normal direction. */
   async incomeStatement(user: AuthUser, range: DateRangeQuery) {
     if (range.from && range.to && range.from > range.to) throw new BadRequestException('from must be on or before to');
-    const balances = await this.accountBalances(user, range);
-    const revenue = section(balances, 'revenue', -1);
-    const expenses = section(balances, 'expense', 1);
-    return {
-      from: range.from ?? null,
-      to: range.to ?? null,
-      revenue: toMoney(revenue),
-      expenses: toMoney(expenses),
-      netIncome: fromSatang(revenue.total - expenses.total),
-    };
+    return buildIncomeStatement(await this.accountBalances(user, range), range);
   }
 
-  /**
-   * Financial position as of a date. There are no closing entries yet, so cumulative revenue minus
-   * expenses shows up as current earnings inside equity; that keeps assets = liabilities + equity.
-   */
   async balanceSheet(user: AuthUser, asOf?: string) {
-    const balances = await this.accountBalances(user, { to: asOf });
-    const assets = section(balances, 'asset', 1);
-    const liabilities = section(balances, 'liability', -1);
-    const equity = section(balances, 'equity', -1);
-    const currentEarnings = section(balances, 'revenue', -1).total - section(balances, 'expense', 1).total;
-    const totalEquity = equity.total + currentEarnings;
-
-    return {
-      asOf: asOf ?? null,
-      assets: toMoney(assets),
-      liabilities: toMoney(liabilities),
-      equity: { ...toMoney(equity), currentEarnings: fromSatang(currentEarnings), total: fromSatang(totalEquity) },
-      totalLiabilitiesAndEquity: fromSatang(liabilities.total + totalEquity),
-      balanced: assets.total === liabilities.total + totalEquity,
-    };
+    return buildBalanceSheet(await this.accountBalances(user, { to: asOf }), asOf);
   }
-}
-
-interface AccountBalance {
-  accountId: string;
-  code: string;
-  name: string;
-  type: AccountType;
-  /** debit - credit, in satang */
-  net: number;
-}
-
-/** Accounts of one type with non-zero balances. sign flips credit-normal types so their balances read positive. */
-function section(balances: AccountBalance[], type: AccountType, sign: 1 | -1) {
-  const accounts = balances
-    .filter((b) => b.type === type && b.net !== 0)
-    .map((b) => ({ accountId: b.accountId, code: b.code, name: b.name, amount: sign * b.net }));
-  return { accounts, total: accounts.reduce((s, a) => s + a.amount, 0) };
-}
-
-function toMoney(s: ReturnType<typeof section>) {
-  return { accounts: s.accounts.map((a) => ({ ...a, amount: fromSatang(a.amount) })), total: fromSatang(s.total) };
 }

@@ -19,12 +19,12 @@ Legend: ✅ done · ⏳ in progress · ⬜ todo
 | TASK-10 | Financial statements: income statement, balance sheet | ✅ | Shared per-account balance query; current earnings shown in equity until closing entries exist; default period = fiscal year. `npm test` 56/56, `npm run e2e` 36/36 |
 | TASK-11 | User management: invite users, assign roles | ✅ | One-time invite links (hashed, 7 days); change role, deactivate/reactivate; last active Admin protected; JWT guard checks active flag + roles per request. Migration 1691234567895. `npm test` 84/84, `npm run e2e` 46/46 |
 | TASK-12 | Subscription & billing integration (invoices, payment gateway) | ✅ | `PaymentGateway` interface + mock gateway; invoices with VAT, payments table (migration 1691234567896); idempotent settlement; trial/unpaid → read-only (402 on writes); plan user limits; billing page + banner. `npm test` 115/115, `npm run e2e` 54/54 |
+| TASK-13 | Jest unit tests + CI | ✅ | Jest (API, 49 tests) + Vitest (web, 28 tests); pure logic extracted into `journal-rules`, `statements`, `billing-math`; GitHub Actions: API / web / integration (Postgres service, smoke under pwsh, E2E in Chrome). `npm test` is now unit tests; smoke moved to `npm run test:smoke` (115/115) |
 
 ## Backlog
 
 | Tag | Task | Status |
 |---|---|---|
-| TASK-13 | Jest unit tests + CI | ⬜ |
 | TASK-14 | Swagger / OpenAPI docs | ⬜ |
 | TASK-15 | Production DB user (non-superuser member of `app_user`), rate limiting on login | ⬜ |
 | TASK-16 | Year-end closing entries (move net income to 3100 retained earnings) | ⬜ |

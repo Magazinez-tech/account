@@ -1,4 +1,4 @@
-// Browser smoke test for the web app. Needs the API (:3000) and Vite (:5173) running, and Microsoft Edge.
+// Browser smoke test for the web app. Needs the API (:3000) and Vite (:5173) running, and Edge (or E2E_BROWSER=chrome).
 // Usage: npm run e2e   (screenshots land in e2e/screenshots/)
 import { mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -14,7 +14,8 @@ const check = (name, ok, detail = '') => {
   console.log(`${ok ? 'PASS' : 'FAIL'} ${name} ${ok ? '' : detail}`);
 };
 
-const browser = await chromium.launch({ channel: 'msedge', headless: true });
+// Installed browser to drive: msedge locally (ships with Windows), chrome on CI runners.
+const browser = await chromium.launch({ channel: process.env.E2E_BROWSER ?? 'msedge', headless: true });
 const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
 const consoleErrors = [];
 page.on('console', (m) => m.type() === 'error' && consoleErrors.push(m.text()));

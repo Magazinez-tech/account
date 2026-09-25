@@ -1,0 +1,125 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A newer push to the same branch or PR cancels the run in progress.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  api:
+    name: API · build + unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+
+  web:
+    name: Web · lint + unit tests + build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+
+  integration:
+    name: Integration · API smoke + browser E2E
+    needs: [api, web]
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: accounting_saas_dev
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DB_HOST: localhost
+      DB_PORT: 5432
+      DB_USERNAME: postgres
+      DB_PASSWORD: postgres
+      DB_DATABASE: accounting_saas_dev
+      # Throwaway secret: the CI database and tokens only live for this job.
+      JWT_SECRET: ci-only-jwt-secret-0123456789abcdef0123456789
+      PAYMENT_PROVIDER: mock
+      APP_URL: http://localhost:5173
+      PGPASSWORD: postgres # psql in the smoke test (RLS and expiry checks)
+      E2E_BROWSER: chrome # preinstalled on ubuntu runners
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            web/package-lock.json
+      - run: npm ci
+      - run: npm ci
+        working-directory: web
+
+      - name: Migrate database
+        run: npm run migration:run
+      - name: Build and start API
+        run: |
+          npm run build
+          nohup npm run start:prod > api.log 2>&1 &
+      - name: Start web dev server
+        working-directory: web
+        run: nohup npx vite --port 5173 --strictPort > ../web.log 2>&1 &
+      - name: Wait for API and web
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:3000/health > /dev/null && curl -sf http://localhost:5173 > /dev/null; then
+              echo "ready after $((i * 2))s"; exit 0
+            fi
+            sleep 2
+          done
+          echo "servers did not start"; cat api.log web.log; exit 1
+
+      - name: API smoke test
+        shell: pwsh
+        run: ./tests/smoke-test.ps1
+      - name: Browser E2E
+        working-directory: web
+        run: npm run e2e
+
+      - name: Upload screenshots and server logs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: integration-artifacts
+          path: |
+            web/e2e/screenshots
+            api.log
+            web.log
+          retention-days: 7
