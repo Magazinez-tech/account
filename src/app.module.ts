@@ -1,0 +1,48 @@
+import { Controller, Get, Module, ServiceUnavailableException } from '@nestjs/common';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { JwtModule } from '@nestjs/jwt';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
+import { AccountingModule } from './accounting/accounting.module';
+import { AuthModule } from './auth/auth.module';
+import { dataSourceOptions } from './database/data-source';
+import { DatabaseModule } from './database/tenant-db.service';
+import { TenantsModule } from './tenants/tenants.module';
+
+@Controller('health')
+export class HealthController {
+  constructor(private readonly dataSource: DataSource) {}
+
+  @Get()
+  async check() {
+    try {
+      await this.dataSource.query('SELECT 1');
+    } catch {
+      throw new ServiceUnavailableException({ status: 'error', database: 'down' });
+    }
+    return { status: 'ok' };
+  }
+}
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({ isGlobal: true }),
+    // Factory runs after ConfigModule has loaded .env into process.env.
+    TypeOrmModule.forRootAsync({ useFactory: () => dataSourceOptions() }),
+    JwtModule.registerAsync({
+      global: true,
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => {
+        const secret = config.getOrThrow<string>('JWT_SECRET');
+        if (secret.length < 32) throw new Error('JWT_SECRET must be at least 32 characters');
+        return { secret };
+      },
+    }),
+    DatabaseModule,
+    AuthModule,
+    TenantsModule,
+    AccountingModule,
+  ],
+  controllers: [HealthController],
+})
+export class AppModule {}
