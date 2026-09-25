@@ -6,6 +6,7 @@ import { Tenant, User } from '../database/entities';
 import { TenantDb } from '../database/tenant-db.service';
 import { AuthUser, JwtPayload } from './jwt-auth.guard';
 import { LoginDto } from './auth.dto';
+import { LoginLockoutService } from './login-lockout.service';
 
 @Injectable()
 export class AuthService {
@@ -13,6 +14,7 @@ export class AuthService {
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
     private readonly db: TenantDb,
+    private readonly lockout: LoginLockoutService,
   ) {}
 
   async issueTokens(user: { id: string; tenantId: string; email: string }) {
@@ -33,6 +35,10 @@ export class AuthService {
     const tenantId = dto.tenantId ?? (dto.tenantSlug ? await this.tenantIdForSlug(dto.tenantSlug) : undefined);
     if (!tenantId) throw new BadRequestException('tenantId or tenantSlug is required');
 
+    // Checked before the password so a locked account can't be probed further.
+    const lockoutKey = LoginLockoutService.key(tenantId, dto.email);
+    await this.lockout.assertNotLocked(lockoutKey);
+
     const user = await this.db.run(tenantId, async (m) => {
       const found = await m
         .getRepository(User)
@@ -44,7 +50,11 @@ export class AuthService {
       await m.getRepository(User).update(found.id, { lastLoginAt: new Date() });
       return found;
     });
-    if (!user) throw new UnauthorizedException('Invalid credentials');
+    if (!user) {
+      await this.lockout.recordFailure(lockoutKey);
+      throw new UnauthorizedException('Invalid credentials');
+    }
+    await this.lockout.recordSuccess(lockoutKey);
 
     return {
       userId: user.id,

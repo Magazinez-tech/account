@@ -186,6 +186,8 @@ const THAI_MESSAGES: Record<string, string> = {
   'Subscription inactive': 'บัญชีอยู่ในโหมดอ่านอย่างเดียว ต้องชำระค่าบริการก่อนจึงจะบันทึกหรือแก้ไขข้อมูลได้',
   'Plan user limit reached': 'จำนวนผู้ใช้ครบตามแพ็กเกจแล้ว อัปเกรดแพ็กเกจเพื่อเพิ่มผู้ใช้',
   'Charge not found': 'ไม่พบรายการชำระเงิน',
+  'Too many failed login attempts': 'ใส่รหัสผ่านผิดหลายครั้งเกินไป บัญชีนี้ถูกล็อกชั่วคราว กรุณาลองใหม่ภายใน 15 นาที',
+  'Too many requests': 'มีการเรียกใช้งานถี่เกินไป กรุณารอสักครู่แล้วลองใหม่',
 };
 
 async function errorFrom(res: Response): Promise<ApiError> {

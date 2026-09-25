@@ -92,8 +92,32 @@ The smoke test creates fresh tenants on every run (slug `test-company-<random>`)
   (slug lookup, slug availability).
 - Foreign-key checks ignore RLS. Services must check that referenced rows (accounts, parent accounts)
   belong to the tenant, as `AccountingService` does.
-- The `postgres` superuser bypasses RLS, so the app only gets isolation through `SET ROLE app_user`.
-  In production, connect as a non-superuser that is a member of `app_user`.
+- The `postgres` superuser bypasses RLS, so in development the app only gets isolation through
+  `SET ROLE app_user` (the API logs a warning at startup). Production uses a least-privilege role; see below.
+
+## Production deployment checklist
+1. **Migrations run as the owner** (e.g. `postgres`): `npm run migration:run`. They create the NOLOGIN roles
+   `app_user` (tenant transactions, RLS) and `app_system` (the few lookups before the tenant is known).
+2. **Create the API's login role** once, as a superuser (PostgreSQL 16+):
+   ```powershell
+   psql -U postgres -d <db> -v login=accounting_app -v password='<strong password>' -f db/create-app-login.sql
+   ```
+   It is not a superuser and has no BYPASSRLS. It inherits `app_system` and may `SET ROLE app_user` without
+   inheriting its privileges, so a query outside `TenantDb.run` gets *permission denied* on tenant tables.
+3. **Run the API** with `NODE_ENV=production`, `DB_USERNAME=accounting_app`, a strong `JWT_SECRET`, and `APP_URL`
+   (or `CORS_ORIGINS`). At startup the API refuses a superuser/BYPASSRLS role or one that can't use `app_user`.
+4. **Behind a load balancer** set `TRUST_PROXY` (e.g. `1`) so rate limits see client IPs.
+
+| Protection | Where | Default |
+|---|---|---|
+| Account lockout | `LoginLockoutService`, table `login_lockouts` (shared by all instances) | 5 failures / 15 min → locked 15 min (`LOGIN_MAX_FAILURES`, `LOGIN_LOCKOUT_MINUTES`) |
+| Per-IP limits | `@RateLimit` + `@nestjs/throttler` (in memory, per instance) | login 30/min, refresh 60/min, signup 10/10 min, slug & invite links 60/min |
+| CORS | `corsOptions` | production: `APP_URL` / `CORS_ORIGINS` only |
+| API docs | `swaggerEnabled` | off in production unless `SWAGGER_ENABLED=true` |
+
+For local development `.env` can set `RATE_LIMIT_SCALE=20` so test suites can run back to back; leave it unset
+in production. CI runs the integration job exactly like production (least-privilege role, `NODE_ENV=production`,
+real limits).
 
 ## Tests and CI
 | Layer | Where | Runs |

@@ -428,6 +428,21 @@ if ($pgBin) {
     Write-Host '  [SKIP] psql not found' -ForegroundColor Yellow
 }
 
+Write-Host "`nLogin lockout (per account)"
+# Tenant B's admin has no failed logins yet (the clerk's deactivated-login attempt above already counted as one).
+$badLogin = @{ email = 'admin2@another.com'; password = 'WrongPass!'; tenantId = $tenantB }
+$codes = 1..5 | ForEach-Object { (Invoke-Api POST '/api/v1/auth/login' $badLogin).Status }
+Check '5 wrong passwords -> 401 each' (($codes | Where-Object { $_ -eq 401 }).Count -eq 5) "(got $($codes -join ','))"
+$r = Invoke-Api POST '/api/v1/auth/login' @{ email = 'admin2@another.com'; password = 'SecurePass456'; tenantId = $tenantB }
+Check 'locked: even the right password -> 429 with retryAfter' ($r.Status -eq 429 -and $r.Body.message -eq 'Too many failed login attempts' -and $r.Body.retryAfter -gt 800) "(got $($r.Status): $($r.Body | ConvertTo-Json -Compress))"
+$r = Invoke-Api POST '/api/v1/auth/login' @{ email = 'admin@testcompany.com'; password = 'SecurePass123'; tenantId = $tenantA }
+Check 'other accounts are unaffected' ($r.Status -eq 200)
+$r = Invoke-Api GET '/api/v1/accounts' $null $tokenB
+Check "the locked user's existing session still works" ($r.Status -eq 200)
+$ghost = @{ email = 'nobody@testcompany.com'; password = 'x'; tenantId = $tenantA }
+$codes = 1..6 | ForEach-Object { (Invoke-Api POST '/api/v1/auth/login' $ghost).Status }
+Check 'unknown emails lock the same way (no account enumeration)' (($codes -join ',') -eq '401,401,401,401,401,429') "(got $($codes -join ','))"
+
 Write-Host "`n10.3 Row-Level Security (direct SQL as app_user)"
 if ($pgBin) {
     $noRls = & $pgBin -U postgres -h localhost -d accounting_saas_dev -tA -c "SELECT count(*) FROM pg_tables WHERE schemaname='public' AND tablename <> 'typeorm_migrations' AND NOT rowsecurity"

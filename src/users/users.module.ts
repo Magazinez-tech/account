@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, HttpCode, Module, Param, ParseUUIDPipe, 
 import { ApiBadRequestResponse, ApiConflictResponse, ApiNoContentResponse, ApiNotFoundResponse, ApiTags } from '@nestjs/swagger';
 import { AuthModule } from '../auth/auth.module';
 import { Authenticated } from '../auth/authenticated.decorator';
+import { RateLimit } from '../auth/rate-limit.decorator';
 import { AuthUser, CurrentUser } from '../auth/jwt-auth.guard';
 import { Roles } from '../auth/roles.guard';
 import { AcceptInvitationDto, InviteUserDto, UpdateUserDto } from './users.dto';
@@ -74,6 +75,7 @@ export class InviteAcceptController {
 
   /** What an invite link is for: email, name, company and tenant slug. */
   @Get(':token')
+  @RateLimit('publicLookup')
   @ApiNotFoundResponse({ description: 'Invitation is invalid or has expired' })
   preview(@Param('token') token: string) {
     return this.users.previewInvitation(token);
@@ -81,6 +83,7 @@ export class InviteAcceptController {
 
   /** Accept an invitation by setting a password; creates the user and returns tokens. */
   @Post(':token/accept')
+  @RateLimit('publicLookup')
   @ApiNotFoundResponse({ description: 'Invitation is invalid or has expired' })
   accept(@Param('token') token: string, @Body() dto: AcceptInvitationDto) {
     return this.users.acceptInvitation(token, dto);

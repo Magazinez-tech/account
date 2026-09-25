@@ -2,6 +2,7 @@ import { Controller, Get, Module, ServiceUnavailableException } from '@nestjs/co
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { ApiServiceUnavailableResponse, ApiTags } from '@nestjs/swagger';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { AccountingModule } from './accounting/accounting.module';
@@ -44,6 +45,8 @@ export class HealthController {
         return { secret };
       },
     }),
+    // Storage and defaults for @RateLimit (per-route limits are set there).
+    ThrottlerModule.forRoot({ throttlers: [{ name: 'default', ttl: 60_000, limit: 60 }], errorMessage: 'Too many requests' }),
     DatabaseModule,
     AuthModule,
     TenantsModule,

@@ -45,6 +45,18 @@ describe('api', () => {
     });
   });
 
+  it('translates login lockout and rate-limit responses', async () => {
+    fetchMock.mockResolvedValueOnce(json(429, { message: 'Too many failed login attempts', retryAfter: 900 }));
+    await expect(api('/auth/login', { method: 'POST', auth: false, body: {} })).rejects.toMatchObject({
+      status: 429,
+      message: expect.stringContaining('บัญชีนี้ถูกล็อกชั่วคราว'),
+    });
+    fetchMock.mockResolvedValueOnce(json(429, { message: 'Too many requests' }));
+    await expect(api('/tenants', { method: 'POST', auth: false, body: {} })).rejects.toMatchObject({
+      message: 'มีการเรียกใช้งานถี่เกินไป กรุณารอสักครู่แล้วลองใหม่',
+    });
+  });
+
   it('joins validation message arrays and passes unknown messages through', async () => {
     fetchMock.mockResolvedValueOnce(json(400, { message: ['code must be 1-20 letters', 'name must be a string'] }));
     const err = await api('/accounts', { method: 'POST', body: {} }).catch((e: ApiError) => e);

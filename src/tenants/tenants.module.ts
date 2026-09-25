@@ -2,6 +2,7 @@ import { Body, Controller, Get, Module, Param, ParseUUIDPipe, Post } from '@nest
 import { ApiConflictResponse, ApiForbiddenResponse, ApiNotFoundResponse, ApiTags } from '@nestjs/swagger';
 import { AuthModule } from '../auth/auth.module';
 import { Authenticated } from '../auth/authenticated.decorator';
+import { RateLimit } from '../auth/rate-limit.decorator';
 import { AuthUser, CurrentUser } from '../auth/jwt-auth.guard';
 import { CreateTenantDto } from './tenants.dto';
 import { TenantsService } from './tenants.service';
@@ -16,6 +17,7 @@ export class TenantsController {
    * and a starter chart of accounts. Returns tokens for the new admin.
    */
   @Post()
+  @RateLimit('signup')
   @ApiConflictResponse({ description: 'Slug is already taken' })
   create(@Body() dto: CreateTenantDto) {
     return this.tenants.create(dto);
@@ -23,6 +25,7 @@ export class TenantsController {
 
   /** Resolve a tenant by its slug (public; used before sign-in). */
   @Get('slug/:slug')
+  @RateLimit('publicLookup')
   @ApiNotFoundResponse({ description: 'Tenant not found' })
   findBySlug(@Param('slug') slug: string) {
     return this.tenants.findBySlug(slug);

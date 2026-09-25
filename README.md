@@ -5,7 +5,8 @@
 Multi-tenant double-entry accounting API built with NestJS, TypeORM and PostgreSQL.
 
 - **Tenancy:** each signup creates a tenant with its own company, roles, admin user, trial subscription and a Thai SME chart of accounts.
-- **Isolation:** PostgreSQL Row-Level Security. Every tenant request runs in a transaction as `app_user` with `app.tenant_id` set, so a missing `WHERE tenant_id = ...` can't leak data.
+- **Isolation:** PostgreSQL Row-Level Security. Every tenant request runs in a transaction as `app_user` with `app.tenant_id` set, so a missing `WHERE tenant_id = ...` can't leak data. In production the API connects as a least-privilege role (no superuser, no BYPASSRLS) and refuses to start otherwise; see [DEVELOPMENT.md](DEVELOPMENT.md#production-deployment-checklist).
+- **Abuse protection:** accounts lock for 15 minutes after 5 failed sign-ins (shared across instances via PostgreSQL); public endpoints have per-IP rate limits (429 with `Retry-After`); production CORS allows only the app's origin.
 - **Auth:** JWT access and refresh tokens, bcrypt password hashes.
 - **Roles:** `Admin` has full access. `User` can read everything and post journal entries, but gets 403 on creating accounts, voiding entries and managing users. `JwtAuthGuard` loads the user's active flag and roles from the database on every request, so deactivation and role changes apply immediately, without waiting for the token to expire.
 - **Users:** admins invite people with a one-time link (7-day expiry, only a SHA-256 hash is stored), change roles, and deactivate or reactivate users. The last active Admin cannot be demoted or deactivated.
