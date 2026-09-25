@@ -8,11 +8,16 @@ import AccountsPage from './pages/AccountsPage';
 import BalanceSheetPage from './pages/BalanceSheetPage';
 import BillingPage from './pages/BillingPage';
 import ClosingPage from './pages/ClosingPage';
+import CompanyPage from './pages/CompanyPage';
+import CustomersPage from './pages/CustomersPage';
 import IncomeStatementPage from './pages/IncomeStatementPage';
 import JournalListPage from './pages/JournalListPage';
 import JournalNewPage from './pages/JournalNewPage';
 import LoginPage from './pages/LoginPage';
 import MockCheckoutPage from './pages/MockCheckoutPage';
+import SalesDocumentFormPage from './pages/SalesDocumentFormPage';
+import SalesDocumentListPage from './pages/SalesDocumentListPage';
+import SalesDocumentPage from './pages/SalesDocumentPage';
 import SignupPage from './pages/SignupPage';
 import TrialBalancePage from './pages/TrialBalancePage';
 import UsersPage from './pages/UsersPage';
@@ -40,11 +45,15 @@ function PublicOnly() {
 }
 
 const NAV = [
+  { to: '/quotations', label: 'ใบเสนอราคา' },
+  { to: '/billing-notes', label: 'ใบวางบิล' },
+  { to: '/customers', label: 'ลูกค้า' },
   { to: '/journal', label: 'สมุดรายวัน' },
   { to: '/accounts', label: 'ผังบัญชี' },
   { to: '/trial-balance', label: 'งบทดลอง' },
   { to: '/income-statement', label: 'งบกำไรขาดทุน' },
   { to: '/balance-sheet', label: 'งบฐานะการเงิน' },
+  { to: '/company', label: 'ข้อมูลบริษัท', adminOnly: true },
   { to: '/users', label: 'ผู้ใช้งาน', adminOnly: true },
   { to: '/billing', label: 'การชำระเงิน', adminOnly: true },
 ];
@@ -88,13 +97,13 @@ function Layout() {
 
   return (
     <div className="min-h-screen">
-      <header className="border-b border-slate-200 bg-white">
+      <header className="border-b border-slate-200 bg-white print:hidden">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3">
           <div className="min-w-0">
             <div className="truncate font-semibold">{tenant?.company?.name ?? tenant?.name ?? '…'}</div>
             {billing && <div className="text-xs text-slate-500">{planLine(billing)}</div>}
           </div>
-          <nav className="order-last flex w-full gap-1 overflow-x-auto sm:order-none sm:w-auto">
+          <nav className="order-last flex w-full gap-1 overflow-x-auto">
             {nav.map((n) => (
               <NavLink
                 key={n.to}
@@ -121,7 +130,7 @@ function Layout() {
         </div>
       </header>
       {billing?.readOnly && (
-        <div role="status" className="border-b border-amber-200 bg-amber-50">
+        <div role="status" className="border-b border-amber-200 bg-amber-50 print:hidden">
           <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2.5 text-sm text-amber-900">
             <span>
               {READ_ONLY_REASON[billing.status] ?? 'บัญชีไม่ได้ใช้งาน'} · ดูข้อมูลได้ แต่บันทึกหรือแก้ไขไม่ได้จนกว่าจะชำระค่าบริการ
@@ -136,7 +145,7 @@ function Layout() {
           </div>
         </div>
       )}
-      <main className="mx-auto max-w-6xl px-4 py-8">
+      <main className="mx-auto max-w-6xl px-4 py-8 print:max-w-none print:p-0">
         <Outlet />
       </main>
     </div>
@@ -159,6 +168,17 @@ export default function App() {
             <Route path="/trial-balance" element={<TrialBalancePage />} />
             <Route path="/income-statement" element={<IncomeStatementPage />} />
             <Route path="/balance-sheet" element={<BalanceSheetPage />} />
+            <Route path="/customers" element={<CustomersPage />} />
+            <Route path="/company" element={<CompanyPage />} />
+            {(['quotation', 'billing_note'] as const).map((t) => {
+              const base = t === 'quotation' ? '/quotations' : '/billing-notes';
+              return [
+                <Route key={`${t}-list`} path={base} element={<SalesDocumentListPage key={t} docType={t} />} />,
+                <Route key={`${t}-new`} path={`${base}/new`} element={<SalesDocumentFormPage key={`${t}-new`} docType={t} />} />,
+                <Route key={`${t}-view`} path={`${base}/:id`} element={<SalesDocumentPage key={t} docType={t} />} />,
+                <Route key={`${t}-edit`} path={`${base}/:id/edit`} element={<SalesDocumentFormPage key={`${t}-edit`} docType={t} />} />,
+              ];
+            })}
             <Route element={<AdminOnly />}>
               <Route path="/users" element={<UsersPage />} />
               <Route path="/billing" element={<BillingPage />} />

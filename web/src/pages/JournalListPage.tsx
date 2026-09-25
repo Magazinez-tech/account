@@ -41,9 +41,11 @@ function EntryCard({
         {entry.reference && <span className="text-sm text-slate-500">อ้างอิง {entry.reference}</span>}
         {isVoid ? <Badge tone="red">ยกเลิกแล้ว</Badge> : <Badge tone="green">ผ่านรายการ</Badge>}
         {entry.kind === 'closing' && <Badge tone="slate">ปิดบัญชีสิ้นปี</Badge>}
-        {locked && !isVoid && entry.kind !== 'closing' && <span className="text-xs text-slate-400">🔒 ปีบัญชีปิดแล้ว</span>}
+        {entry.kind === 'sales' && <Badge tone="slate">จากใบวางบิล</Badge>}
+        {locked && !isVoid && entry.kind === 'manual' && <span className="text-xs text-slate-400">🔒 ปีบัญชีปิดแล้ว</span>}
         <span className="ml-auto text-sm font-medium tabular-nums">{formatMoney(total)}</span>
-        {!isVoid && onVoid && !locked && entry.kind !== 'closing' && (
+        {/* Closing and billing-note entries are reversed from their own pages. */}
+        {!isVoid && onVoid && !locked && entry.kind === 'manual' && (
           <Button variant="danger" className="px-2.5 py-1 text-xs" disabled={busy} onClick={voidEntry}>
             ยกเลิกรายการ
           </Button>

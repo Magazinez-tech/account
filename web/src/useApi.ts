@@ -9,15 +9,16 @@ interface Result<T> {
 
 /**
  * GET `path` on mount and whenever it changes. While a new request is in flight the previous
- * data stays visible, so filters and reloads don't flash an empty page.
+ * data stays visible, so filters and reloads don't flash an empty page. A null path fetches nothing.
  */
-export function useApi<T>(path: string, options: { auth?: boolean } = {}) {
+export function useApi<T>(path: string | null, options: { auth?: boolean } = {}) {
   const { auth = true } = options;
   const [version, setVersion] = useState(0);
   const [result, setResult] = useState<Result<T> | null>(null);
   const key = `${version}:${path}`;
 
   useEffect(() => {
+    if (path === null) return;
     let cancelled = false;
     api<T>(path, { auth }).then(
       (data) => {
@@ -36,7 +37,7 @@ export function useApi<T>(path: string, options: { auth?: boolean } = {}) {
   return {
     data: result?.data ?? null,
     error: result?.key === key ? result.error : null,
-    loading: result?.key !== key,
+    loading: path !== null && result?.key !== key,
     reload,
   };
 }

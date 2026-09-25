@@ -15,8 +15,9 @@ import {
   User,
   UserRole,
 } from '../database/entities';
+import { definedFields } from '../common/defined';
 import { isUniqueViolation, TenantDb } from '../database/tenant-db.service';
-import { CreateTenantDto } from './tenants.dto';
+import { CreateTenantDto, UpdateCompanyDto } from './tenants.dto';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -109,6 +110,25 @@ export class TenantsService {
         order: { createdAt: 'DESC' },
       });
       return { ...tenant, company, subscription };
+    });
+  }
+
+  /** The tenant's company profile (issuer details on documents). */
+  getCompany(user: AuthUser) {
+    return this.db.run(user.tenantId, async (m) => {
+      const company = await m.getRepository(Company).findOneBy({ tenantId: user.tenantId });
+      if (!company) throw new NotFoundException('Company not found');
+      return company;
+    });
+  }
+
+  updateCompany(user: AuthUser, dto: UpdateCompanyDto) {
+    return this.db.run(user.tenantId, async (m) => {
+      const repo = m.getRepository(Company);
+      const company = await repo.findOneBy({ tenantId: user.tenantId });
+      if (!company) throw new NotFoundException('Company not found');
+      const { name, ...optional } = definedFields(dto);
+      return repo.save({ ...company, ...optional, ...(name != null && { name: name.trim() }) });
     });
   }
 }

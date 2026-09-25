@@ -332,6 +332,67 @@ try {
   await page.getByRole('button', { name: 'เปิดปีบัญชีอีกครั้ง' }).click();
   await page.getByText(/^เปิดปีบัญชี .* อีกครั้งแล้ว$/).waitFor();
   check('reopen returns the year to closable', await seen(page.getByText('พร้อมปิดบัญชี')));
+  // Sales documents: company profile -> customer -> quotation -> billing note -> payment.
+  await page.getByRole('link', { name: 'ข้อมูลบริษัท', exact: true }).click();
+  await page.getByRole('heading', { name: 'ข้อมูลบริษัท' }).waitFor();
+  await page.getByLabel('เลขประจำตัวผู้เสียภาษี').fill('0105561234567');
+  await page.getByLabel('ที่อยู่').fill('123 ถนนพระราม 4 แขวงสีลม เขตบางรัก กรุงเทพฯ 10500');
+  await page.getByLabel('โทรศัพท์').fill('02-000-0000');
+  await page.getByRole('button', { name: 'บันทึก', exact: true }).click();
+  check('company profile saved', await seen(page.getByText('บันทึกข้อมูลบริษัทแล้ว')));
+
+  await page.getByRole('link', { name: 'ลูกค้า', exact: true }).click();
+  await page.getByRole('button', { name: '+ เพิ่มลูกค้า' }).click();
+  await page.getByLabel('ชื่อลูกค้า / บริษัท').fill('บริษัท ลูกค้าดี จำกัด');
+  await page.getByLabel('เลขประจำตัวผู้เสียภาษี').fill('0105559999999');
+  await page.getByLabel('สาขา').fill('00000');
+  await page.getByLabel('ที่อยู่').fill('99/1 ถนนสุขุมวิท แขวงคลองเตย เขตคลองเตย กรุงเทพฯ 10110');
+  await page.getByLabel('เครดิต (วัน)').fill('15');
+  await page.getByRole('button', { name: 'บันทึก', exact: true }).click();
+  check('customer added', await seen(page.getByText('เพิ่มลูกค้า บริษัท ลูกค้าดี จำกัด แล้ว')));
+
+  await page.getByRole('link', { name: 'ใบเสนอราคา', exact: true }).click();
+  await page.getByRole('button', { name: '+ สร้างใบเสนอราคา' }).click();
+  await page.getByRole('combobox', { name: /^ลูกค้า/ }).selectOption({ label: 'บริษัท ลูกค้าดี จำกัด' });
+  await page.getByLabel('รายละเอียด บรรทัด 1').fill('ออกแบบเว็บไซต์');
+  await page.getByLabel('ราคาต่อหน่วย บรรทัด 1').fill('30000');
+  await page.getByRole('button', { name: '+ เพิ่มรายการ' }).click();
+  await page.getByLabel('รายละเอียด บรรทัด 2').fill('ดูแลระบบรายเดือน');
+  await page.getByLabel('จำนวน บรรทัด 2', { exact: true }).fill('12');
+  await page.getByLabel('หน่วย บรรทัด 2', { exact: true }).fill('เดือน');
+  await page.getByLabel('ราคาต่อหน่วย บรรทัด 2').fill('500');
+  await page.getByLabel('ส่วนลด', { exact: true }).fill('1000');
+  check('live total: 36,000 - 1,000 discount + VAT 7% = 37,450', await eventually(async () => (await page.getByTestId('doc-total').textContent()) === '37,450.00'));
+  await page.getByRole('button', { name: 'บันทึกร่าง' }).click();
+  await page.getByText(/^สร้างใบเสนอราคา QT-\d{4}-0001 แล้ว$/).waitFor();
+  check('quotation saved; issuer is the signed-in user', await seen(page.getByText('(สมชาย ใจดี)')));
+  check('document shows the company tax ID and branch', await seen(page.getByText('เลขประจำตัวผู้เสียภาษี 0105561234567 (สำนักงานใหญ่)')));
+  check('document shows the amount in Thai words', await seen(page.getByText('(สามหมื่นเจ็ดพันสี่ร้อยห้าสิบบาทถ้วน)')));
+  await page.screenshot({ path: `${shots}15-quotation.png`, fullPage: true });
+
+  await page.getByRole('button', { name: 'ส่งให้ลูกค้าแล้ว' }).click();
+  await page.getByRole('button', { name: 'ลูกค้าตอบรับ' }).click();
+  await page.getByRole('button', { name: 'สร้างใบวางบิล' }).click();
+  await page.getByText(/^สร้างใบวางบิล BN-\d{4}-0001 จาก QT-\d{4}-0001 แล้ว$/).waitFor();
+  check('billing note created from the accepted quotation', await seen(page.getByText('37,450.00').first()));
+  page.once('dialog', (d) => d.accept());
+  await page.getByRole('button', { name: 'ออกใบวางบิล' }).click();
+  check('issuing posts the receivable', await seen(page.getByText(/^ลงบัญชีลูกหนี้: JV-\d+/)));
+  await page.getByRole('button', { name: 'บันทึกรับชำระ', exact: true }).click();
+  await page.getByRole('heading', { name: /^บันทึกรับชำระ 37,450.00 บาท$/ }).waitFor();
+  await page.getByRole('button', { name: 'บันทึกรับชำระ', exact: true }).click();
+  check('payment recorded', await seen(page.getByText(/^บันทึกรับชำระ BN-\d{4}-0001 แล้ว$/)));
+  check('billing note shows paid', await seen(page.getByText('ชำระแล้ว', { exact: true })));
+  await page.screenshot({ path: `${shots}16-billing-note.png`, fullPage: true });
+  await page.emulateMedia({ media: 'print' });
+  check('print view hides the app menu and actions', !(await page.getByRole('navigation').isVisible()) && !(await page.getByRole('button', { name: 'พิมพ์ / PDF' }).isVisible()));
+  await page.screenshot({ path: `${shots}17-billing-note-print.png`, fullPage: true });
+  await page.emulateMedia({ media: 'screen' });
+
+  await page.getByRole('link', { name: 'ใบเสนอราคา', exact: true }).click();
+  check('quotation list links to its billing note', await seen(page.getByRole('link', { name: /^BN-\d{4}-0001$/ })));
+  await page.getByRole('link', { name: 'สมุดรายวัน', exact: true }).click();
+  check('journal shows the billing note entries', await eventually(async () => (await page.getByText('จากใบวางบิล').count()) === 2));
 } catch (err) {
   failures++;
   console.log('FAIL (exception)', err.message.split('\n')[0]);

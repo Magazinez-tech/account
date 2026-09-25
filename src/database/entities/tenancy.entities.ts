@@ -43,8 +43,21 @@ export class Company {
   @Column({ name: 'tax_id', type: 'varchar', nullable: true })
   taxId: string | null;
 
+  /** 00000 = head office (สำนักงานใหญ่), otherwise the Revenue Department branch number. */
+  @Column({ name: 'branch_code', type: 'varchar', default: '00000' })
+  branchCode: string;
+
   @Column({ type: 'text', nullable: true })
   address: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  phone: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  email: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  website: string | null;
 
   @Column({ default: 'THB' })
   currency: string;

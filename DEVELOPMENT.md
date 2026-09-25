@@ -63,6 +63,18 @@ polls `POST /billing/invoices/:id/refresh`, so payments settle even when the web
   `UPDATE subscriptions SET trial_ends_at = now() - interval '1 day' WHERE tenant_id = '...';`
   The tenant turns read-only immediately (status is derived from dates; there is no scheduler).
 
+## Sales documents (quotations, billing notes)
+- Code: `src/sales/`. Totals, numbering and quotation transitions are pure functions in `sales-math.ts` (unit tested);
+  the web app mirrors the rounding in `web/src/sales.ts` for the live preview, and the API result is authoritative.
+- Both document types share `sales_documents` / `sales_document_lines` (`doc_type`). Customer details are copied onto
+  the document on save; the issuer (company profile) is read live when the document is shown.
+- Billing note entries are journal `kind = 'sales'`; `POST /journal-entries/:id/void` refuses them, so the note and
+  its entries can't drift apart. Void the billing note instead.
+- Default accounts by code: 1100 AR, 2100 output VAT, 4000 revenue, 1010 bank. Renaming is fine; deactivating them
+  makes issuing / payment fail with `Account <code> not found` unless another account is chosen.
+- Printing: the document page uses Tailwind `print:` variants and `@page { size: A4 }` (`web/src/index.css`);
+  "พิมพ์ / PDF" calls `window.print()`, so "Save as PDF" in the browser gives the PDF.
+
 ## Web App
 ```powershell
 cd web
@@ -142,7 +154,7 @@ real limits).
 | API unit (Jest) | `src/**/*.spec.ts` | Pure logic: satang math, double-entry rules, statements, billing dates/VAT, subscription access, JWT and role guards |
 | Web unit (Vitest) | `web/src/**/*.test.ts` | Amount parsing/formatting, fiscal-year dates, API client (token refresh, Thai error messages) |
 | API smoke (PowerShell) | `tests/smoke-test.ps1` | Every endpoint against a real database, incl. RLS and subscription expiry |
-| Browser E2E (Playwright) | `web/e2e/smoke.mjs` | Signup → journal → reports → invite → billing through the UI |
+| Browser E2E (Playwright) | `web/e2e/smoke.mjs` | Signup → journal → reports → invite → billing → closing → company profile → customer → quotation → billing note → payment through the UI |
 
 GitHub Actions (`.github/workflows/ci.yml`) runs on every push to `main` and every PR:
 1. **API**: `npm ci`, build, unit tests.

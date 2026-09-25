@@ -1,10 +1,11 @@
-import { Body, Controller, Get, Module, Param, ParseUUIDPipe, Post } from '@nestjs/common';
+import { Body, Controller, Get, Module, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
 import { ApiConflictResponse, ApiForbiddenResponse, ApiNotFoundResponse, ApiTags } from '@nestjs/swagger';
 import { AuthModule } from '../auth/auth.module';
 import { Authenticated } from '../auth/authenticated.decorator';
 import { RateLimit } from '../auth/rate-limit.decorator';
 import { AuthUser, CurrentUser } from '../auth/jwt-auth.guard';
-import { CreateTenantDto } from './tenants.dto';
+import { Roles } from '../auth/roles.guard';
+import { CreateTenantDto, UpdateCompanyDto } from './tenants.dto';
 import { TenantsService } from './tenants.service';
 
 @ApiTags('Tenants')
@@ -40,9 +41,29 @@ export class TenantsController {
   }
 }
 
+@ApiTags('Company profile')
+@Controller('company')
+@Authenticated()
+export class CompanyController {
+  constructor(private readonly tenants: TenantsService) {}
+
+  /** The company profile: legal name, tax ID, branch, address and contacts, printed on sales documents. */
+  @Get()
+  get(@CurrentUser() user: AuthUser) {
+    return this.tenants.getCompany(user);
+  }
+
+  /** Update the company profile. Documents show the current profile when viewed or printed. */
+  @Patch()
+  @Roles('Admin')
+  update(@CurrentUser() user: AuthUser, @Body() dto: UpdateCompanyDto) {
+    return this.tenants.updateCompany(user, dto);
+  }
+}
+
 @Module({
   imports: [AuthModule],
-  controllers: [TenantsController],
+  controllers: [TenantsController, CompanyController],
   providers: [TenantsService],
 })
 export class TenantsModule {}

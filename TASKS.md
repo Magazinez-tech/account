@@ -24,9 +24,12 @@ Legend: ✅ done · ⏳ in progress · ⬜ todo
 | TASK-15 | Production DB user (non-superuser member of `app_user`), rate limiting on login | ✅ | `app_system` role + RLS lookup policies (migration 1691234567897), `db/create-app-login.sql` (NOBYPASSRLS, `app_user` WITH INHERIT FALSE); startup refuses privileged roles in production; account lockout (5/15 min, `login_lockouts`); per-IP throttling on public routes; production CORS; `TRUST_PROXY`. CI runs API as `accounting_app` with `NODE_ENV=production`. Unit 79/79, smoke 129/129 (dev and prod-mode) |
 | TASK-16 | Year-end closing entries (move net income to 3100 retained earnings) | ✅ | Closing entry (`kind = closing`) dated the fiscal year end zeroes revenue/expenses into 3100; closed years locked for posting and voiding; latest year can be reopened (entry voided, kept); income statement excludes closing entries; follows the company fiscal year start month. Migration 1691234567898. Unit 91/91, smoke 153/153, E2E passing |
 | TASK-17 | Real payment gateway (Omise or Stripe): `PaymentGateway` implementation + signed webhook endpoint | ✅ | Omise PromptPay: `OmisePaymentGateway` (Basic auth, `source.type=promptpay`, QR from `scannable_code`), webhook that re-fetches the charge (forged events harmless), polling refresh, test-mode simulate via `mark_as_paid`/`mark_as_failed`. Built against `tools/fake-omise.cjs` (no Omise account yet); swap to real test keys via `.env`. Migration 1691234567899. CI integration runs for both mock and omise. Unit 98/98, smoke 153 (mock) / 157 (omise), E2E both |
+| TASK-19 | Company profile + customers | ✅ | Company profile page (legal name, tax ID, branch 00000 = head office, address, phone, email, website; Admin edits) used as the document issuer. Customers: tax ID, branch, address, contact, credit days, deactivate. Migration 1691234567900 |
+| TASK-20 | Quotations (ใบเสนอราคา) | ✅ | `QT-YYYY-####` per year; lines (qty × price, half-up to the satang), discount before VAT, VAT on/off; draft → sent → accepted/rejected (sent → draft to revise), Admin void; customer details copied onto the document; issuer = the user who created it; A4 print / PDF with the amount in Thai words |
+| TASK-21 | Billing notes (ใบวางบิล) | ✅ | `BN-YYYY-####`; from an accepted quotation (once) or from scratch; due date = date + credit days; issue posts Dr 1100 / Cr revenue / Cr 2100, payment posts Dr cash or bank / Cr 1100 (journal kind `sales`, reversed only by voiding the note; period lock applies); overdue shown from the due date. Unit 110/110, web 48/48, smoke 208/208, E2E passing |
 
 ## Backlog
 
-| Tag | Task | Status |
-|---|---|---|
-| TASK-18 | Tax invoice / receipt PDF for paid invoices (company tax ID, address) | ⬜ |
+| Tag | Task | Status | Notes |
+|---|---|---|---|
+| TASK-18 | Tax invoice / receipt PDF for paid invoices (company tax ID, address) | ⬜ | Issuer details now come from the company profile (TASK-19) |

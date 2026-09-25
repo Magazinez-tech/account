@@ -89,6 +89,7 @@ export class AccountingService {
       const entry = await this.loadEntry(m, id);
       if (entry.status === 'void') throw new ConflictException('Entry is already void');
       if (entry.kind === 'closing') throw new BadRequestException('Closing entries are reversed by reopening the fiscal year');
+      if (entry.kind === 'sales') throw new BadRequestException('Billing note entries are reversed by voiding the billing note');
       await lockLedger(m, user.tenantId);
       await assertPeriodOpen(m, entry.entryDate);
       await m.getRepository(JournalEntry).update(id, { status: 'void' });

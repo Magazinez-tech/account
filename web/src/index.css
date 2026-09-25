@@ -7,3 +7,13 @@
 body {
   @apply bg-slate-50 text-slate-900 antialiased;
 }
+
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm;
+  }
+  body {
+    background: white;
+  }
+}

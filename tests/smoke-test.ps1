@@ -357,6 +357,154 @@ Check 'User cannot reopen a fiscal year -> 403' ($r.Status -eq 403)
 $r = Invoke-Api GET '/api/v1/fiscal-years' $null $tokenUser
 Check 'User can see fiscal year status' ($r.Status -eq 200 -and $r.Body.closedThrough -eq '2025-12-31')
 
+Write-Host "`nCompany profile"
+$r = Invoke-Api GET '/api/v1/company' $null $tokenUser
+Check 'any member reads the company profile (head office by default)' ($r.Status -eq 200 -and $r.Body.name -eq 'Test Company Ltd.' -and $r.Body.branchCode -eq '00000') "(got $($r.Status): $($r.Body | ConvertTo-Json -Compress))"
+$r = Invoke-Api PATCH '/api/v1/company' @{ address = '123 Rama IV Rd, Bangkok 10500'; phone = '02-000-0000'; taxId = '0105561234567' } $tokenA
+Check 'Admin updates address, phone and tax ID; other fields kept' ($r.Status -eq 200 -and $r.Body.address -eq '123 Rama IV Rd, Bangkok 10500' -and $r.Body.taxId -eq '0105561234567' -and $r.Body.name -eq 'Test Company Ltd.') "(got $($r.Status): $($r.Body | ConvertTo-Json -Compress))"
+$r = Invoke-Api PATCH '/api/v1/company' @{ phone = '' } $tokenA
+Check 'an empty field clears it' ($r.Status -eq 200 -and $null -eq $r.Body.phone -and $r.Body.address)
+$r = Invoke-Api PATCH '/api/v1/company' @{ branchCode = '12' } $tokenA
+Check 'invalid branch code -> 400' ($r.Status -eq 400)
+$r = Invoke-Api PATCH '/api/v1/company' @{ phone = '1' } $tokenUser
+Check 'User cannot edit the company profile -> 403' ($r.Status -eq 403)
+
+Write-Host "`nCustomers"
+$r = Invoke-Api POST '/api/v1/customers' @{ name = 'Good Customer Co., Ltd.'; taxId = '0105559999999'; branchCode = '00000'; address = '99/1 Sukhumvit Rd, Bangkok'; contactName = 'Somsri'; creditDays = 15 } $tokenUser
+Check 'User adds a customer with 15 credit days -> 201' ($r.Status -eq 201 -and $r.Body.creditDays -eq 15) "(got $($r.Status): $($r.Body | ConvertTo-Json -Compress))"
+$custId = $r.Body.id
+$r = Invoke-Api POST '/api/v1/customers' @{ name = 'Walk-in'; taxId = '' } $tokenA
+Check 'minimal customer: 30 credit days, empty tax ID stored as null' ($r.Status -eq 201 -and $r.Body.creditDays -eq 30 -and $null -eq $r.Body.taxId)
+$walkInId = $r.Body.id
+$r = Invoke-Api POST '/api/v1/customers' @{ name = 'Bad'; taxId = '123' } $tokenA
+Check 'invalid tax ID -> 400' ($r.Status -eq 400)
+$r = Invoke-Api PATCH "/api/v1/customers/$walkInId" @{ isActive = $false } $tokenA
+Check 'deactivate a customer' ($r.Status -eq 200 -and $r.Body.isActive -eq $false -and $r.Body.name -eq 'Walk-in')
+$r = Invoke-Api GET '/api/v1/customers' $null $tokenA
+Check 'list hides inactive customers' ($r.Status -eq 200 -and @($r.Body).Count -eq 1)
+$r = Invoke-Api GET '/api/v1/customers?includeInactive=true' $null $tokenA
+Check 'includeInactive=true lists both' (@($r.Body).Count -eq 2)
+$r = Invoke-Api GET "/api/v1/customers/$custId" $null $tokenB
+Check "tenant B cannot read A's customer -> 404" ($r.Status -eq 404)
+
+Write-Host "`nQuotations"
+$qBody = @{
+    customerId = $custId; docDate = '2026-09-10'; dueDate = '2026-10-10'; reference = 'PO-77'; discount = 1000
+    lines = @(
+        @{ description = 'Website design'; quantity = 1; unit = 'job'; unitPrice = 25000 },
+        @{ description = 'Hosting'; quantity = 12; unit = 'month'; unitPrice = 500 }
+    )
+}
+$r = Invoke-Api POST '/api/v1/quotations' $qBody $tokenUser
+$q = $r.Body
+Check 'User creates draft QT-2026-0001; issuer is the signed-in user' ($r.Status -eq 201 -and $q.docNo -eq 'QT-2026-0001' -and $q.status -eq 'draft' -and $q.createdByName -eq 'Clerk') "(got $($r.Status): $($r.Body | ConvertTo-Json -Compress -Depth 5))"
+Check 'totals: 31,000 - 1,000 discount + VAT 7% 2,100 = 32,100' ($q.subtotal -eq 31000 -and $q.discount -eq 1000 -and $q.vatAmount -eq 2100 -and $q.total -eq 32100 -and @($q.lines)[1].amount -eq 6000 -and $q.vatRate -eq 7)
+Check "customer's details copied onto the quotation" ($q.customer.name -eq 'Good Customer Co., Ltd.' -and $q.customer.taxId -eq '0105559999999' -and $q.customer.branchCode -eq '00000')
+$qId = $q.id
+$noVat = $qBody.Clone(); $noVat.vat = $false; $noVat.discount = 0
+$r = Invoke-Api POST '/api/v1/quotations' $noVat $tokenA
+Check 'next number QT-2026-0002; without VAT total = 31,000' ($r.Status -eq 201 -and $r.Body.docNo -eq 'QT-2026-0002' -and $r.Body.vatAmount -eq 0 -and $r.Body.total -eq 31000)
+$q2Id = $r.Body.id
+$bad = $qBody.Clone(); $bad.discount = 40000
+$r = Invoke-Api POST '/api/v1/quotations' $bad $tokenA
+Check 'discount over the subtotal -> 400' ($r.Status -eq 400 -and $r.Body.message -eq 'Discount exceeds the subtotal')
+$bad = $qBody.Clone(); $bad.customerId = $walkInId
+$r = Invoke-Api POST '/api/v1/quotations' $bad $tokenA
+Check 'inactive customer -> 400' ($r.Status -eq 400 -and $r.Body.message -eq 'Customer is inactive')
+$r = Invoke-Api POST '/api/v1/quotations' $qBody $tokenB
+Check "tenant B cannot quote A's customer -> 400" ($r.Status -eq 400 -and $r.Body.message -eq 'Customer not found')
+$bad = $qBody.Clone(); $bad.lines = @()
+$r = Invoke-Api POST '/api/v1/quotations' $bad $tokenA
+Check 'no lines -> 400' ($r.Status -eq 400)
+$bad = $qBody.Clone(); $bad.dueDate = '2026-09-01'
+$r = Invoke-Api POST '/api/v1/quotations' $bad $tokenA
+Check 'valid-until before the date -> 400' ($r.Status -eq 400)
+
+$edit = $qBody.Clone(); $edit.lines = @(@{ description = 'Website design'; quantity = 1; unit = 'job'; unitPrice = 30000 })
+$r = Invoke-Api PUT "/api/v1/quotations/$qId" $edit $tokenUser
+Check 'edit the draft: 30,000 - 1,000 + VAT 2,030 = 31,030, number kept' ($r.Status -eq 200 -and $r.Body.total -eq 31030 -and @($r.Body.lines).Count -eq 1 -and $r.Body.docNo -eq 'QT-2026-0001') "(got $($r.Status): $($r.Body.total))"
+$r = Invoke-Api POST "/api/v1/quotations/$qId/status" @{ status = 'accepted' } $tokenUser
+Check 'draft -> accepted is not allowed -> 400' ($r.Status -eq 400)
+$r = Invoke-Api POST "/api/v1/quotations/$qId/status" @{ status = 'sent' } $tokenUser
+Check 'draft -> sent' ($r.Status -eq 200 -and $r.Body.status -eq 'sent')
+$r = Invoke-Api PUT "/api/v1/quotations/$qId" $edit $tokenUser
+Check 'a sent quotation cannot be edited -> 400' ($r.Status -eq 400)
+$r = Invoke-Api POST "/api/v1/quotations/$qId/billing-note" @{} $tokenUser
+Check 'a sent (not accepted) quotation cannot be billed -> 400' ($r.Status -eq 400)
+$r = Invoke-Api POST "/api/v1/quotations/$qId/status" @{ status = 'accepted' } $tokenUser
+Check 'sent -> accepted' ($r.Status -eq 200 -and $r.Body.status -eq 'accepted')
+$r = Invoke-Api POST "/api/v1/quotations/$q2Id/status" @{ status = 'sent' } $tokenA
+$r = Invoke-Api POST "/api/v1/quotations/$q2Id/status" @{ status = 'rejected' } $tokenA
+Check 'sent -> rejected' ($r.Status -eq 200 -and $r.Body.status -eq 'rejected')
+$r = Invoke-Api GET '/api/v1/quotations?status=accepted' $null $tokenA
+Check 'list filtered by status' ($r.Status -eq 200 -and @($r.Body).Count -eq 1 -and @($r.Body)[0].docNo -eq 'QT-2026-0001')
+$r = Invoke-Api POST "/api/v1/quotations/$q2Id/void" $null $tokenUser
+Check 'User cannot void a quotation -> 403' ($r.Status -eq 403)
+$r = Invoke-Api POST "/api/v1/quotations/$q2Id/void" $null $tokenA
+Check 'Admin voids the rejected quotation' ($r.Status -eq 200 -and $r.Body.status -eq 'void')
+
+Write-Host "`nBilling notes"
+$r = Invoke-Api POST "/api/v1/quotations/$qId/billing-note" @{ docDate = '2026-09-20' } $tokenUser
+$bn = $r.Body
+Check 'bill the accepted quotation: draft BN-2026-0001, due = date + 15 credit days' ($r.Status -eq 201 -and $bn.docNo -eq 'BN-2026-0001' -and $bn.status -eq 'draft' -and $bn.dueDate -eq '2026-10-05' -and $bn.total -eq 31030 -and $bn.quotation.docNo -eq 'QT-2026-0001') "(got $($r.Status): $($r.Body | ConvertTo-Json -Compress -Depth 5))"
+$bnId = $bn.id
+$r = Invoke-Api POST "/api/v1/quotations/$qId/billing-note" @{} $tokenUser
+Check 'billing the same quotation again -> 409' ($r.Status -eq 409)
+$r = Invoke-Api GET "/api/v1/quotations/$qId" $null $tokenA
+Check 'quotation links to its billing note' ($r.Body.billingNote.docNo -eq 'BN-2026-0001')
+$r = Invoke-Api POST "/api/v1/quotations/$qId/void" $null $tokenA
+Check 'cannot void a quotation with a live billing note -> 400' ($r.Status -eq 400)
+
+$r = Invoke-Api POST "/api/v1/billing-notes/$bnId/payment" @{ paidDate = '2026-09-28' } $tokenUser
+Check 'a draft cannot be paid -> 400' ($r.Status -eq 400)
+$r = Invoke-Api POST "/api/v1/billing-notes/$bnId/issue" $null $tokenUser
+Check 'issue -> issued, journal entry posted' ($r.Status -eq 200 -and $r.Body.status -eq 'issued' -and $r.Body.journalEntry.entryNo -and $r.Body.revenueAccount.code -eq '4000') "(got $($r.Status): $($r.Body | ConvertTo-Json -Compress -Depth 5))"
+$issueEntryId = $r.Body.journalEntry.id
+$r = Invoke-Api GET "/api/v1/journal-entries/$issueEntryId" $null $tokenA
+$byAcct = @{}; foreach ($l in @($r.Body.lines)) { $byAcct[$l.accountId] = $l }
+Check 'issue entry: kind sales, dated the note, ref BN-2026-0001' ($r.Body.kind -eq 'sales' -and $r.Body.entryDate -eq '2026-09-20' -and $r.Body.reference -eq 'BN-2026-0001')
+Check 'issue entry: Dr AR 31,030 / Cr sales 29,000 / Cr output VAT 2,030' ([decimal]$byAcct[$acc['1100']].debit -eq 31030 -and [decimal]$byAcct[$acc['4000']].credit -eq 29000 -and [decimal]$byAcct[$acc['2100']].credit -eq 2030)
+$r = Invoke-Api POST "/api/v1/journal-entries/$issueEntryId/void" $null $tokenA
+Check 'billing note entries cannot be voided from the journal -> 400' ($r.Status -eq 400)
+$r = Invoke-Api POST "/api/v1/billing-notes/$bnId/issue" $null $tokenUser
+Check 'issuing twice -> 400' ($r.Status -eq 400)
+$r = Invoke-Api POST "/api/v1/billing-notes/$bnId/payment" @{ paidDate = '2026-09-19' } $tokenUser
+Check 'payment dated before the note -> 400' ($r.Status -eq 400)
+$r = Invoke-Api POST "/api/v1/billing-notes/$bnId/payment" @{ paidDate = '2026-09-28'; accountId = $acc['4000'] } $tokenUser
+Check 'payment into a non-asset account -> 400' ($r.Status -eq 400)
+$r = Invoke-Api POST "/api/v1/billing-notes/$bnId/payment" @{ paidDate = '2026-09-28' } $tokenUser
+Check 'receive payment -> paid into 1010 by default' ($r.Status -eq 200 -and $r.Body.status -eq 'paid' -and $r.Body.paidDate -eq '2026-09-28' -and $r.Body.paymentAccount.code -eq '1010') "(got $($r.Status): $($r.Body | ConvertTo-Json -Compress -Depth 5))"
+$r = Invoke-Api GET "/api/v1/journal-entries/$($r.Body.paymentJournalEntry.id)" $null $tokenA
+$byAcct = @{}; foreach ($l in @($r.Body.lines)) { $byAcct[$l.accountId] = $l }
+Check 'payment entry: Dr bank 31,030 / Cr AR 31,030 on the payment date' ($r.Body.kind -eq 'sales' -and $r.Body.entryDate -eq '2026-09-28' -and [decimal]$byAcct[$acc['1010']].debit -eq 31030 -and [decimal]$byAcct[$acc['1100']].credit -eq 31030)
+$r = Invoke-Api GET '/api/v1/reports/trial-balance' $null $tokenA
+$ar = @($r.Body.accounts) | Where-Object { $_.code -eq '1100' }
+Check 'trial balance balanced; AR back to zero' ($r.Body.balanced -eq $true -and $null -eq $ar) "(got $($ar | ConvertTo-Json -Compress))"
+$r = Invoke-Api POST "/api/v1/billing-notes/$bnId/void" $null $tokenA
+Check 'a paid billing note cannot be voided -> 400' ($r.Status -eq 400)
+
+$standalone = @{ customerId = $custId; docDate = '2025-06-01'; vat = $false; revenueAccountId = $acc['4100']
+    lines = @(@{ description = 'Consulting'; quantity = 2.5; unit = 'hour'; unitPrice = 1000 }) }
+$r = Invoke-Api POST '/api/v1/billing-notes' $standalone $tokenUser
+Check 'standalone billing note (no quotation): BN-2025-0001, 2,500 without VAT' ($r.Status -eq 201 -and $r.Body.docNo -eq 'BN-2025-0001' -and $r.Body.total -eq 2500 -and $null -eq $r.Body.quotation -and $r.Body.revenueAccount.code -eq '4100') "(got $($r.Status): $($r.Body | ConvertTo-Json -Compress -Depth 5))"
+$bn2Id = $r.Body.id
+$r = Invoke-Api POST "/api/v1/billing-notes/$bn2Id/issue" $null $tokenUser
+Check 'issuing into the closed year -> 400 Period is closed' ($r.Status -eq 400 -and $r.Body.message -eq 'Period is closed')
+$standalone.docDate = '2026-09-21'
+$r = Invoke-Api PUT "/api/v1/billing-notes/$bn2Id" $standalone $tokenUser
+Check 'redate the draft (number kept), then issue' ($r.Status -eq 200 -and $r.Body.docNo -eq 'BN-2025-0001' -and (Invoke-Api POST "/api/v1/billing-notes/$bn2Id/issue" $null $tokenUser).Status -eq 200)
+$r = Invoke-Api GET '/api/v1/billing-notes?status=issued' $null $tokenA
+Check 'list issued billing notes' ($r.Status -eq 200 -and @($r.Body).Count -eq 1 -and @($r.Body)[0].id -eq $bn2Id)
+$r = Invoke-Api POST "/api/v1/billing-notes/$bn2Id/void" $null $tokenUser
+Check 'User cannot void a billing note -> 403' ($r.Status -eq 403)
+$r = Invoke-Api POST "/api/v1/billing-notes/$bn2Id/void" $null $tokenA
+$voidEntry = $r.Body.journalEntry.id
+Check 'Admin voids the issued note' ($r.Status -eq 200 -and $r.Body.status -eq 'void')
+$r = Invoke-Api GET "/api/v1/journal-entries/$voidEntry" $null $tokenA
+Check "the voided note's journal entry is void too" ($r.Body.status -eq 'void')
+$r = Invoke-Api GET "/api/v1/billing-notes/$bnId" $null $tokenB
+Check "tenant B cannot read A's billing note -> 404" ($r.Status -eq 404)
+
 Write-Host "`nUser management: roles and deactivation"
 $r = Invoke-Api GET '/api/v1/users' $null $tokenA
 Check 'Admin lists 2 users' ($r.Status -eq 200 -and @($r.Body).Count -eq 2)

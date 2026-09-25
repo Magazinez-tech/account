@@ -12,6 +12,7 @@ import { DatabaseModule } from './database/tenant-db.service';
 import { TenantsModule } from './tenants/tenants.module';
 import { UsersModule } from './users/users.module';
 import { BillingModule } from './billing/billing.module';
+import { SalesModule } from './sales/sales.module';
 
 @ApiTags('Health')
 @Controller('health')
@@ -53,6 +54,7 @@ export class HealthController {
     AccountingModule,
     UsersModule,
     BillingModule,
+    SalesModule,
   ],
   controllers: [HealthController],
 })

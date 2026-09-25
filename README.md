@@ -12,7 +12,8 @@ Multi-tenant double-entry accounting API built with NestJS, TypeORM and PostgreS
 - **Users:** admins invite people with a one-time link (7-day expiry, only a SHA-256 hash is stored), change roles, and deactivate or reactivate users. The last active Admin cannot be demoted or deactivated.
 - **Billing:** plans are priced before VAT; checkout issues an invoice (VAT from `system_config.vat_rate`) and sends the admin to the payment gateway, whose result (webhook) marks it paid and extends the subscription by a month. Once a trial ends or a paid period lapses the tenant becomes read-only: reads work, writes return 402 except billing. Plan `max_users` caps active users plus open invitations. Gateways: `mock` (hosted mock page, default) and `omise` (PromptPay QR through Omise / Opn Payments; the webhook payload is never trusted, the charge is re-read from Omise). Development and CI run the Omise integration against `tools/fake-omise.cjs`.
 - **Accounting:** chart of accounts, balanced journal entries (debits must equal credits, amounts summed in satang), voiding instead of deleting, a trial balance, an income statement for any period, and a balance sheet as of any date. Year-end closing posts a closing entry that moves revenue and expenses into 3100 retained earnings and locks the fiscal year (no new or voided entries dated in it); the latest closed year can be reopened. Profit not yet closed shows on the balance sheet as current earnings.
-- **Web app ([web/](web/)):** React + Tailwind UI in Thai for signup, login, chart of accounts, journal entry (live debit/credit balance check), journal list with void, trial balance, income statement, balance sheet, year-end closing, user management with invite links, and billing (plans, invoices, trial/read-only banner, mock checkout page).
+- **Sales documents:** company profile (legal name, tax ID, branch, address, contacts) printed as the issuer; customers with tax ID, branch and credit terms; quotations (`QT-<year>-<seq>`: draft → sent → accepted / rejected) and billing notes (`BN-<year>-<seq>`), made from an accepted quotation or from scratch. Prices exclude VAT, the discount comes off before VAT, and the signed-in user who created a document is printed as its issuer. Issuing a billing note posts Dr 1100 AR / Cr revenue / Cr 2100 output VAT; recording payment posts Dr cash or bank / Cr AR. These entries (kind `sales`) are reversed only by voiding the note, and respect the year-end period lock. Documents print to A4 (or PDF via the browser) with the amount in Thai words.
+- **Web app ([web/](web/)):** React + Tailwind UI in Thai for signup, login, quotations, billing notes, customers, company profile, chart of accounts, journal entry (live debit/credit balance check), journal list with void, trial balance, income statement, balance sheet, year-end closing, user management with invite links, and billing (plans, invoices, trial/read-only banner, mock checkout page).
 
 See [DEVELOPMENT.md](DEVELOPMENT.md) for setup and [TASKS.md](TASKS.md) for the task board.
 
@@ -43,6 +44,20 @@ JSDoc, so they stay in sync with the code; they are off in production unless `SW
 | GET | `/fiscal-years` | JWT | Closed years, lock date, next closable year with a preview |
 | POST | `/fiscal-years/close` | JWT, Admin | `{ fiscalYearEnd }` → closing entry + lock |
 | POST | `/fiscal-years/:fiscalYearEnd/reopen` | JWT, Admin | Reopen the latest closed year (closing entry voided) |
+| GET | `/company` | JWT | Company profile (issuer details on documents) |
+| PATCH | `/company` | JWT, Admin | `{ name?, taxId?, branchCode?, address?, phone?, email?, website? }` |
+| GET | `/customers?includeInactive=` | JWT | Customers by name |
+| GET / POST / PATCH | `/customers`, `/customers/:id` | JWT | One customer / add / change or deactivate (`isActive: false`) |
+| GET | `/quotations?status=&customerId=` | JWT | Quotations with their billing note |
+| GET / POST / PUT | `/quotations`, `/quotations/:id` | JWT | One quotation / create draft / replace a draft |
+| POST | `/quotations/:id/status` | JWT | `{ status: sent | accepted | rejected | draft }` |
+| POST | `/quotations/:id/billing-note` | JWT | Draft billing note from an accepted quotation (once) |
+| POST | `/quotations/:id/void` | JWT, Admin | Cancel a quotation |
+| GET | `/billing-notes?status=&customerId=` | JWT | Billing notes |
+| GET / POST / PUT | `/billing-notes`, `/billing-notes/:id` | JWT | One note / create draft / replace a draft |
+| POST | `/billing-notes/:id/issue` | JWT | Post the receivable (Dr AR / Cr revenue, output VAT) |
+| POST | `/billing-notes/:id/payment` | JWT | `{ paidDate, accountId? }` → Dr cash or bank / Cr AR |
+| POST | `/billing-notes/:id/void` | JWT, Admin | Cancel a draft or issued note (its entry is voided) |
 | GET | `/users` | JWT, Admin | Users with roles |
 | PATCH | `/users/:id` | JWT, Admin | `{ role?, isActive? }` |
 | GET | `/invitations` | JWT, Admin | Pending invitations |
