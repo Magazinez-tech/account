@@ -17,12 +17,12 @@ Legend: ✅ done · ⏳ in progress · ⬜ todo
 | TASK-8 | Frontend (React + Tailwind): login, chart of accounts, journal entry form, trial balance | ✅ | `web/`: Vite 8, React 19, Tailwind 4, Thai UI; also signup, journal list + void; `npm run e2e` 27/27 passing |
 | TASK-9 | Role-based permissions (Admin vs User) on write endpoints | ✅ | `@Roles('Admin')` on create account + void; roles read from DB per request; UI hides Admin-only actions. `npm test` 47/47, `npm run e2e` 30/30 |
 | TASK-10 | Financial statements: income statement, balance sheet | ✅ | Shared per-account balance query; current earnings shown in equity until closing entries exist; default period = fiscal year. `npm test` 56/56, `npm run e2e` 36/36 |
+| TASK-11 | User management: invite users, assign roles | ✅ | One-time invite links (hashed, 7 days); change role, deactivate/reactivate; last active Admin protected; JWT guard checks active flag + roles per request. Migration 1691234567895. `npm test` 84/84, `npm run e2e` 46/46 |
 
 ## Backlog
 
 | Tag | Task | Status |
 |---|---|---|
-| TASK-11 | User management: invite users, assign roles | ⬜ |
 | TASK-12 | Subscription & billing integration (invoices, payment gateway) | ⬜ |
 | TASK-13 | Jest unit tests + CI | ⬜ |
 | TASK-14 | Swagger / OpenAPI docs | ⬜ |

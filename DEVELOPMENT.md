@@ -44,6 +44,8 @@ Vite + React 19 + TypeScript + Tailwind 4 + React Router. Start the API first.
 | `npm run lint` | oxlint |
 | `npm run e2e` | Browser smoke test in headless Edge (API and dev server must be running). Screenshots go to `web/e2e/screenshots/` |
 
+If the dev server serves stale code after files are rewritten outside the editor (e.g. `sed -i`), touch the file or restart `npm run dev`; the Windows file watcher can miss replaced files.
+
 - Tokens are kept in `localStorage`. A 401 triggers one refresh with the refresh token; if that fails, the user is signed out.
 - The journal form checks balance in satang in the browser too, so the submit button stays disabled until debits equal credits.
 

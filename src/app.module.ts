@@ -8,6 +8,7 @@ import { AuthModule } from './auth/auth.module';
 import { dataSourceOptions } from './database/data-source';
 import { DatabaseModule } from './database/tenant-db.service';
 import { TenantsModule } from './tenants/tenants.module';
+import { UsersModule } from './users/users.module';
 
 @Controller('health')
 export class HealthController {
@@ -42,6 +43,7 @@ export class HealthController {
     AuthModule,
     TenantsModule,
     AccountingModule,
+    UsersModule,
   ],
   controllers: [HealthController],
 })

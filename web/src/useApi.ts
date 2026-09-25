@@ -11,14 +11,15 @@ interface Result<T> {
  * GET `path` on mount and whenever it changes. While a new request is in flight the previous
  * data stays visible, so filters and reloads don't flash an empty page.
  */
-export function useApi<T>(path: string) {
+export function useApi<T>(path: string, options: { auth?: boolean } = {}) {
+  const { auth = true } = options;
   const [version, setVersion] = useState(0);
   const [result, setResult] = useState<Result<T> | null>(null);
   const key = `${version}:${path}`;
 
   useEffect(() => {
     let cancelled = false;
-    api<T>(path).then(
+    api<T>(path, { auth }).then(
       (data) => {
         if (!cancelled) setResult({ key, data, error: null });
       },
@@ -29,7 +30,7 @@ export function useApi<T>(path: string) {
     return () => {
       cancelled = true;
     };
-  }, [key, path]);
+  }, [key, path, auth]);
 
   const reload = useCallback(() => setVersion((v) => v + 1), []);
   return {

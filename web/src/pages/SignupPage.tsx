@@ -37,7 +37,7 @@ export default function SignupPage() {
       localStorage.setItem(LAST_SLUG_KEY, form.slug);
       await startSession(res);
     } catch (err) {
-      setError((err as Error).message === 'Slug is already taken' ? 'รหัสบริษัทนี้ถูกใช้แล้ว' : (err as Error).message);
+      setError((err as Error).message);
       setBusy(false);
     }
   }

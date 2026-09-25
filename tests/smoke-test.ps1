@@ -201,54 +201,107 @@ Check 'balance sheet asOf 09-05: assets 110,700, earnings 10,000' ($r.Body.asset
 $r = Invoke-Api GET '/api/v1/reports/balance-sheet' $null $tokenB
 Check 'tenant B balance sheet is empty and balanced' ($r.Status -eq 200 -and $r.Body.assets.total -eq 0 -and $r.Body.balanced -eq $true)
 
-$pgBin = 'C:\Program Files\PostgreSQL\16\bin\psql.exe'
-$env:PGPASSWORD = 'postgres'
+Write-Host "`nUser management: invitations"
+$r = Invoke-Api POST '/api/v1/invitations' @{ email = 'Clerk@TestCompany.com'; fullName = 'Clerk'; role = 'User' } $tokenA
+Check 'Admin invites a User -> 201 with one-time token' ($r.Status -eq 201 -and $r.Body.token -and $r.Body.email -eq 'clerk@testcompany.com') "(got $($r.Status): $($r.Body | ConvertTo-Json -Compress))"
+$firstToken = $r.Body.token
+$r = Invoke-Api POST '/api/v1/invitations' @{ email = 'clerk@testcompany.com'; fullName = 'Clerk'; role = 'User' } $tokenA
+$inviteToken = $r.Body.token
+Check 're-invite replaces the open invitation' ($r.Status -eq 201 -and $inviteToken -ne $firstToken)
+$r = Invoke-Api GET '/api/v1/invitations' $null $tokenA
+Check 'one pending invitation listed (no token in list)' ($r.Status -eq 200 -and @($r.Body).Count -eq 1 -and -not $r.Body[0].token)
+$r = Invoke-Api GET "/api/v1/invites/$firstToken"
+Check 'replaced invite link -> 404' ($r.Status -eq 404)
+$r = Invoke-Api POST '/api/v1/invitations' @{ email = 'admin@testcompany.com'; fullName = 'Dup'; role = 'User' } $tokenA
+Check 'inviting an existing user -> 409' ($r.Status -eq 409)
+$r = Invoke-Api POST '/api/v1/invitations' @{ email = 'x@testcompany.com'; fullName = 'X'; role = 'Owner' } $tokenA
+Check 'unknown role -> 400' ($r.Status -eq 400)
+
+$r = Invoke-Api GET "/api/v1/invites/$inviteToken"
+Check 'public invite preview shows email and company' ($r.Status -eq 200 -and $r.Body.email -eq 'clerk@testcompany.com' -and $r.Body.companyName -eq 'Test Company Ltd.')
+$r = Invoke-Api POST "/api/v1/invites/$inviteToken/accept" @{ password = 'short' }
+Check 'accept with short password -> 400' ($r.Status -eq 400)
+$r = Invoke-Api POST "/api/v1/invites/$inviteToken/accept" @{ password = 'ClerkPass123' }
+Check 'accept invite -> tokens + tenant slug' ($r.Status -eq 201 -and $r.Body.accessToken -and $r.Body.tenantSlug -eq "test-company-$suffix") "(got $($r.Status))"
+$tokenUser = $r.Body.accessToken
+$r = Invoke-Api POST "/api/v1/invites/$inviteToken/accept" @{ password = 'ClerkPass123' }
+Check 'invite link is single-use -> 404' ($r.Status -eq 404)
+$r = Invoke-Api POST '/api/v1/auth/login' @{ email = 'clerk@testcompany.com'; password = 'ClerkPass123'; tenantId = $tenantA }
+Check 'invited user can log in' ($r.Status -eq 200)
+$r = Invoke-Api GET '/api/v1/auth/me' $null $tokenUser
+Check 'invited user has roles = [User]' ($r.Status -eq 200 -and (@($r.Body.roles) -join ',') -eq 'User')
+$r = Invoke-Api GET '/api/v1/invitations' $null $tokenA
+Check 'accepted invitation no longer pending' (@($r.Body).Count -eq 0)
+
+$r = Invoke-Api POST '/api/v1/invitations' @{ email = 'temp@testcompany.com'; fullName = 'Temp'; role = 'User' } $tokenA
+$tempId = $r.Body.id; $tempToken = $r.Body.token
+$r = Invoke-Api DELETE "/api/v1/invitations/$tempId" $null $tokenA
+Check 'revoke invitation -> 204' ($r.Status -eq 204)
+$r = Invoke-Api GET "/api/v1/invites/$tempToken"
+Check 'revoked invite link -> 404' ($r.Status -eq 404)
+$r = Invoke-Api DELETE "/api/v1/invitations/$tempId" $null $tokenA
+Check 'revoke twice -> 404' ($r.Status -eq 404)
 
 Write-Host "`nRole-based permissions (User role)"
-if (Test-Path $pgBin) {
-    # No invite endpoint yet (TASK-11), so seed a User-role member of tenant A directly.
-    $hash = (& node -e "process.stdout.write(require('bcryptjs').hashSync('ClerkPass123', 10))")
-    $sql = 'WITH u AS (INSERT INTO users (tenant_id, email, full_name, password_hash) ' +
-           "VALUES ('$tenantA', 'clerk@testcompany.com', 'Clerk', '" + $hash + "') RETURNING id, tenant_id) " +
-           'INSERT INTO user_roles (user_id, role_id, tenant_id) SELECT u.id, r.id, u.tenant_id FROM u ' +
-           "JOIN roles r ON r.tenant_id = u.tenant_id AND r.name = 'User'"
-    & $pgBin -U postgres -h localhost -d accounting_saas_dev -q -c $sql | Out-Null
+$r = Invoke-Api GET '/api/v1/accounts' $null $tokenUser
+Check 'User can list accounts' ($r.Status -eq 200)
+$r = Invoke-Api GET '/api/v1/reports/trial-balance' $null $tokenUser
+Check 'User can read trial balance' ($r.Status -eq 200)
+$r = Invoke-Api POST '/api/v1/journal-entries' @{
+    entryDate = '2026-09-08'; description = 'Utilities'
+    lines = @(@{ accountId = $acc['5300']; debit = 1200 }, @{ accountId = $acc['1000']; credit = 1200 })
+} $tokenUser
+Check 'User can post a journal entry' ($r.Status -eq 201)
+$userEntryId = $r.Body.id
 
-    $r = Invoke-Api POST '/api/v1/auth/login' @{ email = 'clerk@testcompany.com'; password = 'ClerkPass123'; tenantId = $tenantA }
-    $tokenUser = $r.Body.accessToken
-    $r = Invoke-Api GET '/api/v1/auth/me' $null $tokenUser
-    Check 'User-role member logs in with roles = [User]' ($r.Status -eq 200 -and (@($r.Body.roles) -join ',') -eq 'User')
+$r = Invoke-Api POST '/api/v1/accounts' @{ code = '1030'; name = 'Petty cash'; type = 'asset' } $tokenUser
+Check 'User cannot create an account -> 403' ($r.Status -eq 403 -and $r.Body.message -eq 'Requires role: Admin') "(got $($r.Status))"
+$r = Invoke-Api POST "/api/v1/journal-entries/$userEntryId/void" $null $tokenUser
+Check 'User cannot void an entry -> 403' ($r.Status -eq 403) "(got $($r.Status))"
+$r = Invoke-Api GET "/api/v1/journal-entries/$userEntryId" $null $tokenA
+Check 'entry is still posted after the denied void' ($r.Body.status -eq 'posted')
+$r = Invoke-Api POST "/api/v1/journal-entries/$userEntryId/void" $null $tokenA
+Check 'Admin can void the entry' ($r.Status -eq 201 -and $r.Body.status -eq 'void')
+$r = Invoke-Api GET '/api/v1/users' $null $tokenUser
+Check 'User cannot list users -> 403' ($r.Status -eq 403)
+$r = Invoke-Api POST '/api/v1/invitations' @{ email = 'y@testcompany.com'; fullName = 'Y'; role = 'Admin' } $tokenUser
+Check 'User cannot invite -> 403' ($r.Status -eq 403)
 
-    $r = Invoke-Api GET '/api/v1/accounts' $null $tokenUser
-    Check 'User can list accounts' ($r.Status -eq 200)
-    $r = Invoke-Api GET '/api/v1/reports/trial-balance' $null $tokenUser
-    Check 'User can read trial balance' ($r.Status -eq 200)
-    $r = Invoke-Api POST '/api/v1/journal-entries' @{
-        entryDate = '2026-09-08'; description = 'Utilities'
-        lines = @(@{ accountId = $acc['5300']; debit = 1200 }, @{ accountId = $acc['1000']; credit = 1200 })
-    } $tokenUser
-    Check 'User can post a journal entry' ($r.Status -eq 201)
-    $userEntryId = $r.Body.id
+Write-Host "`nUser management: roles and deactivation"
+$r = Invoke-Api GET '/api/v1/users' $null $tokenA
+Check 'Admin lists 2 users' ($r.Status -eq 200 -and @($r.Body).Count -eq 2)
+$adminId = (@($r.Body) | Where-Object { $_.email -eq 'admin@testcompany.com' }).id
+$clerkId = (@($r.Body) | Where-Object { $_.email -eq 'clerk@testcompany.com' }).id
 
-    $r = Invoke-Api POST '/api/v1/accounts' @{ code = '1030'; name = 'Petty cash'; type = 'asset' } $tokenUser
-    Check 'User cannot create an account -> 403' ($r.Status -eq 403 -and $r.Body.message -eq 'Requires role: Admin') "(got $($r.Status))"
-    $r = Invoke-Api POST "/api/v1/journal-entries/$userEntryId/void" $null $tokenUser
-    Check 'User cannot void an entry -> 403' ($r.Status -eq 403) "(got $($r.Status))"
-    $r = Invoke-Api GET "/api/v1/journal-entries/$userEntryId" $null $tokenA
-    Check 'entry is still posted after the denied void' ($r.Body.status -eq 'posted')
+$r = Invoke-Api PATCH "/api/v1/users/$clerkId" @{ role = 'Admin' } $tokenA
+Check 'promote clerk to Admin' ($r.Status -eq 200 -and (@($r.Body.roles) -join ',') -eq 'Admin')
+$r = Invoke-Api POST '/api/v1/accounts' @{ code = '1030'; name = 'Petty cash'; type = 'asset' } $tokenUser
+Check 'new role applies to the same token' ($r.Status -eq 201) "(got $($r.Status))"
+$r = Invoke-Api PATCH "/api/v1/users/$clerkId" @{ role = 'User' } $tokenA
+Check 'demote clerk back to User' ($r.Status -eq 200 -and (@($r.Body.roles) -join ',') -eq 'User')
 
-    $r = Invoke-Api POST "/api/v1/journal-entries/$userEntryId/void" $null $tokenA
-    Check 'Admin can void the entry' ($r.Status -eq 201 -and $r.Body.status -eq 'void')
+$r = Invoke-Api PATCH "/api/v1/users/$adminId" @{ role = 'User' } $tokenA
+Check 'last Admin cannot demote themself -> 400' ($r.Status -eq 400)
+$r = Invoke-Api GET '/api/v1/auth/me' $null $tokenA
+Check 'Admin role unchanged after the rejected demotion' ((@($r.Body.roles) -join ',') -eq 'Admin')
+$r = Invoke-Api PATCH "/api/v1/users/$adminId" @{ isActive = $false } $tokenA
+Check 'cannot deactivate yourself -> 400' ($r.Status -eq 400)
 
-    # Roles are checked against the DB per request, so granting Admin works without a new token.
-    $sql = "INSERT INTO user_roles (user_id, role_id, tenant_id) SELECT u.id, r.id, u.tenant_id FROM users u " +
-           "JOIN roles r ON r.tenant_id = u.tenant_id AND r.name = 'Admin' WHERE u.tenant_id = '$tenantA' AND u.email = 'clerk@testcompany.com'"
-    & $pgBin -U postgres -h localhost -d accounting_saas_dev -q -c $sql | Out-Null
-    $r = Invoke-Api POST '/api/v1/accounts' @{ code = '1030'; name = 'Petty cash'; type = 'asset' } $tokenUser
-    Check 'granting Admin takes effect on the same token' ($r.Status -eq 201) "(got $($r.Status))"
-} else {
-    Write-Host '  [SKIP] psql not found' -ForegroundColor Yellow
-}
+$r = Invoke-Api PATCH "/api/v1/users/$clerkId" @{ isActive = $false } $tokenA
+Check 'deactivate clerk' ($r.Status -eq 200 -and $r.Body.isActive -eq $false)
+$r = Invoke-Api GET '/api/v1/accounts' $null $tokenUser
+Check "deactivated user's existing token -> 401" ($r.Status -eq 401)
+$r = Invoke-Api POST '/api/v1/auth/login' @{ email = 'clerk@testcompany.com'; password = 'ClerkPass123'; tenantId = $tenantA }
+Check 'deactivated user cannot log in -> 401' ($r.Status -eq 401)
+$r = Invoke-Api PATCH "/api/v1/users/$clerkId" @{ isActive = $true } $tokenA
+$r = Invoke-Api GET '/api/v1/accounts' $null $tokenUser
+Check 'reactivated user works again' ($r.Status -eq 200)
+
+$r = Invoke-Api PATCH "/api/v1/users/$clerkId" @{ role = 'Admin' } $tokenB
+Check "tenant B admin cannot change tenant A's user -> 404" ($r.Status -eq 404)
+
+$pgBin = 'C:\Program Files\PostgreSQL\16\bin\psql.exe'
+$env:PGPASSWORD = 'postgres'
 
 Write-Host "`n10.3 Row-Level Security (direct SQL as app_user)"
 if (Test-Path $pgBin) {

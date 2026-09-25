@@ -1,16 +1,10 @@
-// Browser smoke test for the web app. Needs the API (:3000) and Vite (:5173) running, Microsoft Edge,
-// psql (to seed a User-role member) and the root npm install (for bcryptjs).
+// Browser smoke test for the web app. Needs the API (:3000) and Vite (:5173) running, and Microsoft Edge.
 // Usage: npm run e2e   (screenshots land in e2e/screenshots/)
-import { execFileSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
 
 const BASE = process.env.WEB_URL ?? 'http://localhost:5173';
-const PSQL = process.env.PSQL ?? 'C:\\Program Files\\PostgreSQL\\16\\bin\\psql.exe';
-// bcryptjs comes from the API's node_modules in the repo root.
-const bcrypt = createRequire(new URL('../../package.json', import.meta.url))('bcryptjs');
 const shots = fileURLToPath(new URL('./screenshots/', import.meta.url));
 mkdirSync(shots, { recursive: true });
 const slug = `ui-test-${Math.random().toString(36).slice(2, 8)}`;
@@ -146,14 +140,6 @@ try {
   await page.getByText('20 บัญชี').waitFor();
   check('bad access token recovered via refresh', (await page.evaluate(() => localStorage.getItem('acc.accessToken'))) !== 'garbage');
 
-  // User role: no Admin-only actions. There's no invite flow yet (TASK-11), so seed the member with psql.
-  const hash = bcrypt.hashSync('ClerkPass123', 10);
-  execFileSync(PSQL, ['-U', 'postgres', '-h', 'localhost', '-d', 'accounting_saas_dev', '-q', '-c',
-    `WITH u AS (INSERT INTO users (tenant_id, email, full_name, password_hash)
-       SELECT id, 'clerk@uitest.com', 'Clerk', '${hash}' FROM tenants WHERE slug = '${slug}' RETURNING id, tenant_id)
-     INSERT INTO user_roles (user_id, role_id, tenant_id)
-       SELECT u.id, r.id, u.tenant_id FROM u JOIN roles r ON r.tenant_id = u.tenant_id AND r.name = 'User'`],
-    { env: { ...process.env, PGPASSWORD: 'postgres' } });
   // Post an entry as Admin so the clerk has a posted (voidable) entry to look at.
   await page.getByRole('link', { name: 'สมุดรายวัน' }).click();
   await page.getByRole('button', { name: '+ บันทึกรายการ' }).click();
@@ -163,20 +149,52 @@ try {
   await page.getByLabel('เครดิต').nth(1).fill('5000');
   await page.getByRole('button', { name: 'บันทึกรายการ' }).click();
   await page.getByText('บันทึกรายการ JV-2 แล้ว').waitFor();
+  await page.getByText('JV-2', { exact: true }).waitFor();
   check('Admin sees void button', await page.getByRole('button', { name: 'ยกเลิกรายการ' }).isVisible());
 
-  await page.getByRole('button', { name: 'ออกจากระบบ' }).click();
+  // Invite a User-role member through the users page
+  await page.getByRole('link', { name: 'ผู้ใช้งาน' }).click();
+  await page.getByText('1 คน').waitFor();
+  check('users page lists the admin', await page.getByText('(คุณ)').isVisible());
+  await page.getByRole('button', { name: '+ เชิญผู้ใช้' }).click();
   await page.getByLabel('อีเมล').fill('clerk@uitest.com');
-  await page.getByLabel('รหัสผ่าน').fill('ClerkPass123');
-  await page.getByRole('button', { name: 'เข้าสู่ระบบ' }).click();
+  await page.getByLabel('ชื่อ-นามสกุล').fill('พนักงานบัญชี');
+  await page.getByRole('button', { name: 'สร้างลิงก์คำเชิญ' }).click();
+  const link = await page.getByLabel('ลิงก์คำเชิญ').inputValue();
+  check('invite creates a one-time link', /\/invite\/[\w-]{20,}$/.test(link), link);
+  await page.getByText('คำเชิญที่รอตอบรับ').waitFor();
+  check('pending invitation listed', true);
+  await page.screenshot({ path: `${shots}08-invite.png`, fullPage: true });
+
+  // Accept the invite as the new user
+  await page.getByRole('button', { name: 'ออกจากระบบ' }).click();
+  await page.getByRole('heading', { name: 'เข้าสู่ระบบ' }).waitFor();
+  await page.goto(link);
+  await page.getByRole('heading', { name: 'เข้าร่วม บริษัท ทดสอบ UI จำกัด' }).waitFor();
+  check('invite page shows email', (await page.getByLabel('อีเมล').inputValue()) === 'clerk@uitest.com');
+  await page.locator('input[type=password]').first().fill('ClerkPass123');
+  await page.getByLabel('ยืนยันรหัสผ่าน').fill('ClerkPass12');
+  check('password mismatch blocks submit', await page.getByRole('button', { name: 'เริ่มใช้งาน' }).isDisabled());
+  await page.getByLabel('ยืนยันรหัสผ่าน').fill('ClerkPass123');
+  await page.screenshot({ path: `${shots}09-accept-invite.png` });
+  await page.getByRole('button', { name: 'เริ่มใช้งาน' }).click();
   await page.getByText('JV-2').waitFor();
+  check('accepting the invite signs the user in', page.url().endsWith('/journal'));
   check('User role shown in header', await page.getByText('· User').isVisible());
   check('User sees no void button', (await page.getByRole('button', { name: 'ยกเลิกรายการ' }).count()) === 0);
   check('User can still open the entry form', await page.getByRole('button', { name: '+ บันทึกรายการ' }).isVisible());
   await page.getByRole('link', { name: 'ผังบัญชี' }).click();
   await page.getByText('20 บัญชี').waitFor();
   check('User sees no add-account button', (await page.getByRole('button', { name: '+ เพิ่มบัญชี' }).count()) === 0);
-  await page.screenshot({ path: `${shots}08-user-role.png` });
+  check('User sees no users menu', (await page.getByRole('link', { name: 'ผู้ใช้งาน' }).count()) === 0);
+  await page.screenshot({ path: `${shots}10-user-role.png` });
+  await page.goto(`${BASE}/users`);
+  await page.getByRole('heading', { name: 'สมุดรายวันทั่วไป' }).waitFor();
+  check('User visiting /users is sent to the journal', page.url().endsWith('/journal'));
+  await page.goto(link);
+  await page.getByText('ลิงก์คำเชิญไม่ถูกต้อง ถูกยกเลิก หรือหมดอายุแล้ว').waitFor();
+  check('used invite link shows an error', true);
+  await page.goto(`${BASE}/journal`);
 
   // Financial statements (as the User role, which may read reports). Only JV-2 (rent 5,000) is posted.
   await page.getByRole('link', { name: 'งบกำไรขาดทุน' }).click();
@@ -184,7 +202,7 @@ try {
   const is = await page.locator('table').innerText();
   check('income statement: rent 5,000, net loss (5,000.00)', is.includes('5200') && is.includes('(5,000.00)'), is);
   check('income statement excludes voided sale', !is.includes('4000'), is);
-  await page.screenshot({ path: `${shots}09-income-statement.png`, fullPage: true });
+  await page.screenshot({ path: `${shots}11-income-statement.png`, fullPage: true });
   await page.getByRole('button', { name: 'ทั้งหมด' }).click();
   check('"all time" preset clears dates', (await page.getByLabel('ตั้งแต่วันที่').inputValue()) === '');
 
@@ -192,7 +210,7 @@ try {
   await page.getByText('สินทรัพย์ = หนี้สิน + ส่วนของเจ้าของ').waitFor();
   const bs = await page.locator('main').innerText();
   check('balance sheet shows current-period loss', bs.includes('กำไร (ขาดทุน) งวดปัจจุบัน') && (bs.match(/\(5,000\.00\)/g) ?? []).length >= 4, bs);
-  await page.screenshot({ path: `${shots}10-balance-sheet.png`, fullPage: true });
+  await page.screenshot({ path: `${shots}12-balance-sheet.png`, fullPage: true });
   await page.getByLabel('ณ วันที่').fill('2000-01-01');
   await page.getByText('ไม่มีรายการ').nth(2).waitFor();
   check('balance sheet before any entry: nothing listed', (await page.getByText('ไม่มีรายการ').count()) === 3);
@@ -203,14 +221,14 @@ try {
   await page.getByText('ยกเลิกแล้ว').waitFor();
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
   check('no horizontal page scroll at 390px', !overflow);
-  await page.screenshot({ path: `${shots}07-mobile.png`, fullPage: true });
+  await page.screenshot({ path: `${shots}13-mobile.png`, fullPage: true });
 } catch (err) {
   failures++;
   console.log('FAIL (exception)', err.message.split('\n')[0]);
   await page.screenshot({ path: `${shots}error.png`, fullPage: true });
 } finally {
-  // 401s from the deliberate bad token/password are expected network errors.
-  const unexpected = consoleErrors.filter((e) => !/401|Unauthorized|409|Conflict/.test(e));
+  // Expected network errors: 401 (bad token/password), 409 (duplicate account), 404 (used invite link).
+  const unexpected = consoleErrors.filter((e) => !/401|Unauthorized|409|Conflict|404|Not Found/.test(e));
   check('no unexpected console errors', unexpected.length === 0, unexpected.join(' | '));
   await browser.close();
   console.log(failures ? `\n${failures} failure(s)` : '\nall passed');

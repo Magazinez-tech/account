@@ -80,6 +80,35 @@ export interface TenantDetail {
   subscription: { status: string; trialEndsAt: string | null } | null;
 }
 
+export type RoleName = 'Admin' | 'User';
+
+export interface UserRow {
+  id: string;
+  email: string;
+  fullName: string;
+  isActive: boolean;
+  lastLoginAt: string | null;
+  createdAt: string;
+  roles: string[];
+}
+
+export interface Invitation {
+  id: string;
+  email: string;
+  fullName: string;
+  role: string;
+  expiresAt: string;
+  createdAt: string;
+  expired: boolean;
+}
+
+export interface InvitePreview {
+  email: string;
+  fullName: string;
+  companyName: string;
+  tenantSlug: string;
+}
+
 export interface Tokens {
   accessToken: string;
   refreshToken: string;
@@ -113,6 +142,18 @@ export const session = {
   },
 };
 
+/** Thai text for server messages a user is likely to see; anything else is shown as sent. */
+const THAI_MESSAGES: Record<string, string> = {
+  'Invalid credentials': 'รหัสบริษัท อีเมล หรือรหัสผ่านไม่ถูกต้อง',
+  'Slug is already taken': 'รหัสบริษัทนี้ถูกใช้แล้ว',
+  'Requires role: Admin': 'เฉพาะผู้ดูแลระบบ (Admin) เท่านั้น',
+  'A user with this email already exists': 'มีผู้ใช้อีเมลนี้อยู่แล้ว',
+  'An invitation for this email is already pending': 'มีคำเชิญของอีเมลนี้ค้างอยู่แล้ว',
+  'Invitation is invalid or has expired': 'ลิงก์คำเชิญไม่ถูกต้อง ถูกยกเลิก หรือหมดอายุแล้ว',
+  'At least one active Admin is required': 'ต้องมีผู้ดูแลระบบ (Admin) ที่ใช้งานอยู่อย่างน้อย 1 คน',
+  'You cannot deactivate yourself': 'ปิดการใช้งานบัญชีของตัวเองไม่ได้',
+};
+
 async function errorFrom(res: Response): Promise<ApiError> {
   let message = `${res.status} ${res.statusText}`;
   try {
@@ -122,7 +163,7 @@ async function errorFrom(res: Response): Promise<ApiError> {
   } catch {
     // not JSON; keep the status text
   }
-  return new ApiError(res.status, message);
+  return new ApiError(res.status, THAI_MESSAGES[message] ?? message);
 }
 
 let refreshing: Promise<boolean> | null = null;

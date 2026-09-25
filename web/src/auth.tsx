@@ -12,6 +12,8 @@ interface AuthContextValue {
   /** Stores tokens from signup (or login) and loads the current user. */
   startSession(tokens: Tokens): Promise<void>;
   logout(): void;
+  /** Re-fetches the current user, e.g. after an admin changes their own role. */
+  reloadMe(): Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -59,7 +61,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setState({ status: 'anonymous', loggedOut: true });
   }, []);
 
-  return <AuthContext.Provider value={{ state, login, startSession, logout }}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={{ state, login, startSession, logout, reloadMe: loadMe }}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {

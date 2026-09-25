@@ -33,7 +33,7 @@ export default function LoginPage() {
     try {
       await login(slug.trim(), email.trim(), password);
     } catch (err) {
-      setError((err as Error).message === 'Invalid credentials' ? 'รหัสบริษัท อีเมล หรือรหัสผ่านไม่ถูกต้อง' : (err as Error).message);
+      setError((err as Error).message);
       setBusy(false);
     }
   }

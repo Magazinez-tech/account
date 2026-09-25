@@ -1,6 +1,7 @@
 import { BrowserRouter, Navigate, NavLink, Outlet, Route, Routes, useLocation } from 'react-router-dom';
 import type { TenantDetail } from './api';
-import { AuthProvider, useAuth, useMe } from './auth';
+import { AuthProvider, isAdmin, useAuth, useMe } from './auth';
+import AcceptInvitePage from './pages/AcceptInvitePage';
 import AccountsPage from './pages/AccountsPage';
 import BalanceSheetPage from './pages/BalanceSheetPage';
 import IncomeStatementPage from './pages/IncomeStatementPage';
@@ -9,6 +10,7 @@ import JournalNewPage from './pages/JournalNewPage';
 import LoginPage from './pages/LoginPage';
 import SignupPage from './pages/SignupPage';
 import TrialBalancePage from './pages/TrialBalancePage';
+import UsersPage from './pages/UsersPage';
 import { Button, cx, Loading } from './ui';
 import { useApi } from './useApi';
 
@@ -38,11 +40,18 @@ const NAV = [
   { to: '/trial-balance', label: 'งบทดลอง' },
   { to: '/income-statement', label: 'งบกำไรขาดทุน' },
   { to: '/balance-sheet', label: 'งบแสดงฐานะการเงิน' },
+  { to: '/users', label: 'ผู้ใช้งาน', adminOnly: true },
 ];
+
+/** Non-admins who land on an admin page (e.g. right after demoting themselves) go to the journal. */
+function AdminOnly() {
+  return isAdmin(useMe()) ? <Outlet /> : <Navigate to="/journal" replace />;
+}
 
 function Layout() {
   const me = useMe();
   const { logout } = useAuth();
+  const nav = NAV.filter((n) => !n.adminOnly || isAdmin(me));
   const { data: tenant } = useApi<TenantDetail>(`/tenants/${me.tenantId}`);
 
   return (
@@ -58,7 +67,7 @@ function Layout() {
             )}
           </div>
           <nav className="order-last flex w-full gap-1 overflow-x-auto sm:order-none sm:w-auto">
-            {NAV.map((n) => (
+            {nav.map((n) => (
               <NavLink
                 key={n.to}
                 to={n.to}
@@ -106,7 +115,12 @@ export default function App() {
             <Route path="/trial-balance" element={<TrialBalancePage />} />
             <Route path="/income-statement" element={<IncomeStatementPage />} />
             <Route path="/balance-sheet" element={<BalanceSheetPage />} />
+            <Route element={<AdminOnly />}>
+              <Route path="/users" element={<UsersPage />} />
+            </Route>
           </Route>
+          {/* Outside both guards: an invite link works whether or not someone is signed in on this browser. */}
+          <Route path="/invite/:token" element={<AcceptInvitePage />} />
           <Route path="*" element={<Navigate to="/journal" replace />} />
         </Routes>
       </BrowserRouter>
