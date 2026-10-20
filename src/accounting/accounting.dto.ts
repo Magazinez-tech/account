@@ -124,6 +124,15 @@ export class AsOfQuery {
   asOf?: string;
 }
 
+export class VatMonthQuery {
+  /**
+   * The month to report, YYYY-MM.
+   * @example 2026-10
+   */
+  @Matches(/^\d{4}-\d{2}$/, { message: 'month must be YYYY-MM' })
+  month: string;
+}
+
 export class CloseFiscalYearDto {
   /**
    * Last day of the fiscal year to close, YYYY-MM-DD. Must be a fiscal year end for the company's

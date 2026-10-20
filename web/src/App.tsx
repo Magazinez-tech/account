@@ -5,6 +5,7 @@ import { AuthProvider, isAdmin, useAuth, useMe } from './auth';
 import { BILLING_CHANGED } from './billing-events';
 import AcceptInvitePage from './pages/AcceptInvitePage';
 import AccountsPage from './pages/AccountsPage';
+import DashboardPage from './pages/DashboardPage';
 import BalanceSheetPage from './pages/BalanceSheetPage';
 import BillingPage from './pages/BillingPage';
 import ClosingPage from './pages/ClosingPage';
@@ -19,6 +20,7 @@ import SalesDocumentFormPage from './pages/SalesDocumentFormPage';
 import SalesDocumentListPage from './pages/SalesDocumentListPage';
 import SalesDocumentPage from './pages/SalesDocumentPage';
 import TaxInvoicePage from './pages/TaxInvoicePage';
+import VatReportPage from './pages/VatReportPage';
 import SignupPage from './pages/SignupPage';
 import TrialBalancePage from './pages/TrialBalancePage';
 import UsersPage from './pages/UsersPage';
@@ -41,11 +43,12 @@ function PublicOnly() {
   const from = (useLocation().state as { from?: string } | null)?.from;
   if (state.status === 'loading') return <Loading />;
   // Signing in flips auth state; send the user back to where RequireAuth bounced them from.
-  if (state.status === 'authenticated') return <Navigate to={from ?? '/journal'} replace />;
+  if (state.status === 'authenticated') return <Navigate to={from ?? '/dashboard'} replace />;
   return <Outlet />;
 }
 
 const NAV = [
+  { to: '/dashboard', label: 'ภาพรวม' },
   { to: '/quotations', label: 'ใบเสนอราคา' },
   { to: '/billing-notes', label: 'ใบวางบิล' },
   { to: '/customers', label: 'ลูกค้า' },
@@ -54,6 +57,7 @@ const NAV = [
   { to: '/trial-balance', label: 'งบทดลอง' },
   { to: '/income-statement', label: 'งบกำไรขาดทุน' },
   { to: '/balance-sheet', label: 'งบฐานะการเงิน' },
+  { to: '/vat-report', label: 'รายงาน VAT' },
   { to: '/company', label: 'ข้อมูลบริษัท', adminOnly: true },
   { to: '/users', label: 'ผู้ใช้งาน', adminOnly: true },
   { to: '/billing', label: 'การชำระเงิน', adminOnly: true },
@@ -78,9 +82,9 @@ function planLine(b: BillingStatus): string {
   return `${plan} · ${READ_ONLY_REASON[b.status] ?? ''}`;
 }
 
-/** Non-admins who land on an admin page (e.g. right after demoting themselves) go to the journal. */
+/** Non-admins who land on an admin page (e.g. right after demoting themselves) go to the dashboard. */
 function AdminOnly() {
-  return isAdmin(useMe()) ? <Outlet /> : <Navigate to="/journal" replace />;
+  return isAdmin(useMe()) ? <Outlet /> : <Navigate to="/dashboard" replace />;
 }
 
 function Layout() {
@@ -163,6 +167,7 @@ export default function App() {
             <Route path="/signup" element={<SignupPage />} />
           </Route>
           <Route element={<RequireAuth />}>
+            <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/journal" element={<JournalListPage />} />
             <Route path="/journal/new" element={<JournalNewPage />} />
             <Route path="/accounts" element={<AccountsPage />} />
@@ -181,6 +186,7 @@ export default function App() {
               ];
             })}
             <Route path="/billing-notes/:id/tax-invoice" element={<TaxInvoicePage />} />
+            <Route path="/vat-report" element={<VatReportPage />} />
             <Route element={<AdminOnly />}>
               <Route path="/users" element={<UsersPage />} />
               <Route path="/billing" element={<BillingPage />} />
@@ -191,7 +197,7 @@ export default function App() {
           <Route path="/invite/:token" element={<AcceptInvitePage />} />
           {/* Stands in for the payment provider's hosted page (PAYMENT_PROVIDER=mock). */}
           <Route path="/billing/mock-checkout/:chargeId" element={<MockCheckoutPage />} />
-          <Route path="*" element={<Navigate to="/journal" replace />} />
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>

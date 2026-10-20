@@ -30,6 +30,10 @@ Legend: ✅ done · ⏳ in progress · ⬜ todo
 
 | TASK-22 | ขยายผังบัญชี default จาก 19 → 51 บัญชี (มาตรฐาน TFRS for NPAEs) | ✅ | เพิ่ม 32 บัญชีใหม่: ค่าเสื่อมราคาสะสม (อุปกรณ์/คอมพิวเตอร์/ยานพาหนะ/อาคาร), เงินกู้ยืมระยะสั้น/ยาว, ภาษีเงินได้นิติบุคคล, ค่าใช้จ่ายค้างจ่าย, ภาษีถูกหัก ณ ที่จ่าย, สำรองตามกฎหมาย ฯลฯ; smoke + E2E อัปเดตแล้ว |
 
+| TASK-23 | รายงานภาษีมูลค่าเพิ่ม (VAT Report / ภ.พ.30) | ✅ | `GET /reports/vat?month=YYYY-MM`: output VAT จากใบวางบิลที่ออกแล้ว + input VAT จาก account 1300; หน้า VatReportPage แสดงตาราง ภาษีขาย/ซื้อ/ยอดสุทธิ; เพิ่มใน nav |
+| TASK-24 | Dashboard หน้าแรก | ✅ | `GET /reports/dashboard`: cash+bank, AR, กำไรเดือนนี้, ใบวางบิลเกินกำหนด; DashboardPage KPI cards + quick links; เปลี่ยน default route เป็น /dashboard |
+| TASK-25 | Print-ready financial statements | ✅ | เพิ่มปุ่ม "พิมพ์ / PDF" บน งบกำไรขาดทุน / งบฐานะการเงิน / งบทดลอง; ซ่อน controls ด้วย print:hidden |
+
 ## Backlog
 
 | Tag | Task | Status | Notes |

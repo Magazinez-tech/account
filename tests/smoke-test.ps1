@@ -706,5 +706,19 @@ if ($pgBin) {
     Write-Host '  [SKIP] psql not found' -ForegroundColor Yellow
 }
 
+Write-Host "`nDashboard and VAT report"
+$r = Invoke-Api GET '/api/v1/reports/dashboard' $null $tokenA
+Check 'GET /reports/dashboard -> 200 with KPIs' ($r.Status -eq 200 -and $null -ne $r.Body.cashBalance -and $null -ne $r.Body.arBalance -and $null -ne $r.Body.thisMonthNetIncome -and $null -ne $r.Body.overdueCount) "(got $($r.Body | ConvertTo-Json -Compress))"
+Check 'dashboard AR back to zero after payment' ($r.Body.arBalance -eq 0)
+
+$thisMonth = (Get-Date).ToString('yyyy-MM')
+$r = Invoke-Api GET "/api/v1/reports/vat?month=$thisMonth" $null $tokenA
+Check "GET /reports/vat?month=$thisMonth -> 200" ($r.Status -eq 200 -and $r.Body.month -eq $thisMonth) "(got $($r.Status): $($r.Body | ConvertTo-Json -Compress))"
+Check 'vat report has outputVat and inputVat sections' ($null -ne $r.Body.outputVat -and $null -ne $r.Body.inputVat -and $null -ne $r.Body.netVat)
+$r = Invoke-Api GET '/api/v1/reports/vat' $null $tokenA
+Check 'vat report without month param -> 400' ($r.Status -eq 400)
+$r = Invoke-Api GET '/api/v1/reports/vat?month=2026-09' $null $tokenA
+Check 'vat report September 2026: billing note BN-2026-0001 output VAT 2,030' ($r.Body.outputVat.vatAmount -eq 2030 -and $r.Body.outputVat.taxableAmount -eq 29000 -and @($r.Body.outputVat.transactions).Count -eq 1) "(got $($r.Body.outputVat | ConvertTo-Json -Compress))"
+
 Write-Host "`n$($script:passes) passed, $($script:failures) failed"
 if ($script:failures -gt 0) { exit 1 }

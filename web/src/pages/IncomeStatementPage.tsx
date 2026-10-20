@@ -26,8 +26,16 @@ function Report({ fiscalStartMonth }: { fiscalStartMonth: number }) {
 
   return (
     <>
-      <PageHeader title="งบกำไรขาดทุน" subtitle={period} />
-      <div className="mb-6 flex flex-wrap items-end gap-3">
+      <PageHeader
+        title="งบกำไรขาดทุน"
+        subtitle={period}
+        actions={
+          <Button variant="secondary" className="print:hidden" onClick={() => window.print()}>
+            พิมพ์ / PDF
+          </Button>
+        }
+      />
+      <div className="mb-6 flex flex-wrap items-end gap-3 print:hidden">
         <Field label="ตั้งแต่วันที่">
           <Input type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} />
         </Field>

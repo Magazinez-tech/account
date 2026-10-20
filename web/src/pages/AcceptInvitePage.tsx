@@ -31,7 +31,7 @@ export default function AcceptInvitePage() {
       });
       localStorage.setItem(LAST_SLUG_KEY, res.tenantSlug);
       await startSession(res);
-      navigate('/journal', { replace: true });
+      navigate('/dashboard', { replace: true });
     } catch (err) {
       setError((err as Error).message);
       setBusy(false);

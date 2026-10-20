@@ -8,6 +8,8 @@ import { toBalancedLines } from './journal-rules';
 import { assertPeriodOpen, insertEntry, lockLedger, queryAccountBalances } from './ledger';
 import { buildBalanceSheet, buildIncomeStatement, buildTrialBalance } from './statements';
 
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
 @Injectable()
 export class AccountingService {
   constructor(private readonly db: TenantDb) {}
@@ -108,6 +110,123 @@ export class AccountingService {
   }
 
   // ---- Reports ----------------------------------------------------------
+
+  /** VAT summary for ภ.พ.30: output VAT from billing notes + input VAT from journal lines on 1300. */
+  async vatReport(user: AuthUser, month: string) {
+    const [y, mo] = month.split('-').map(Number);
+    const from = `${month}-01`;
+    const to = `${y}-${String(mo).padStart(2, '0')}-${new Date(y, mo, 0).getDate()}`;
+
+    return this.db.run(user.tenantId, async (m) => {
+      const outputRows: {
+        doc_no: string;
+        customer_name: string;
+        customer_tax_id: string | null;
+        doc_date: string;
+        taxable_amount: string;
+        vat_amount: string;
+      }[] = await m.query(
+        `SELECT doc_no, customer_name, customer_tax_id, doc_date,
+                (subtotal - discount) AS taxable_amount, vat_amount
+           FROM sales_documents
+          WHERE doc_type = 'billing_note'
+            AND status IN ('issued', 'paid')
+            AND doc_date BETWEEN $1 AND $2
+          ORDER BY doc_date, doc_no`,
+        [from, to],
+      );
+
+      const inputRows: {
+        entry_no: number;
+        entry_date: string;
+        description: string | null;
+        reference: string | null;
+        vat_amount: string;
+      }[] = await m.query(
+        `SELECT e.entry_no, e.entry_date, e.description, e.reference, l.debit AS vat_amount
+           FROM journal_lines l
+           JOIN journal_entries e ON e.id = l.journal_entry_id AND e.status = 'posted'
+           JOIN chart_of_accounts a ON a.id = l.account_id AND a.code = '1300'
+          WHERE e.entry_date BETWEEN $1 AND $2
+            AND l.debit > 0
+          ORDER BY e.entry_date, e.entry_no`,
+        [from, to],
+      );
+
+      const outputTaxable = outputRows.reduce((s, r) => s + parseFloat(r.taxable_amount), 0);
+      const outputVat = outputRows.reduce((s, r) => s + parseFloat(r.vat_amount), 0);
+      const inputVat = inputRows.reduce((s, r) => s + parseFloat(r.vat_amount), 0);
+
+      return {
+        month,
+        outputVat: {
+          taxableAmount: round2(outputTaxable),
+          vatAmount: round2(outputVat),
+          transactions: outputRows.map((r) => ({
+            docNo: r.doc_no,
+            customerName: r.customer_name,
+            customerTaxId: r.customer_tax_id,
+            docDate: r.doc_date,
+            taxableAmount: parseFloat(r.taxable_amount),
+            vatAmount: parseFloat(r.vat_amount),
+          })),
+        },
+        inputVat: {
+          vatAmount: round2(inputVat),
+          transactions: inputRows.map((r) => ({
+            entryNo: r.entry_no,
+            entryDate: r.entry_date,
+            description: r.description,
+            reference: r.reference,
+            vatAmount: parseFloat(r.vat_amount),
+          })),
+        },
+        netVat: round2(outputVat - inputVat),
+      };
+    });
+  }
+
+  /** KPIs for the dashboard: cash, AR, this month's net income, overdue billing note count. */
+  async dashboard(user: AuthUser) {
+    const today = new Date().toISOString().slice(0, 10);
+    const monthStart = `${today.slice(0, 7)}-01`;
+
+    return this.db.run(user.tenantId, async (m) => {
+      const cashRow: { debit: string; credit: string }[] = await m.query(
+        `SELECT COALESCE(SUM(l.debit), 0) AS debit, COALESCE(SUM(l.credit), 0) AS credit
+           FROM journal_lines l
+           JOIN journal_entries e ON e.id = l.journal_entry_id AND e.status = 'posted'
+           JOIN chart_of_accounts a ON a.id = l.account_id AND a.code IN ('1000', '1010', '1020')`,
+        [],
+      );
+      const cashBalance = round2(parseFloat(cashRow[0].debit) - parseFloat(cashRow[0].credit));
+
+      const arRow: { debit: string; credit: string }[] = await m.query(
+        `SELECT COALESCE(SUM(l.debit), 0) AS debit, COALESCE(SUM(l.credit), 0) AS credit
+           FROM journal_lines l
+           JOIN journal_entries e ON e.id = l.journal_entry_id AND e.status = 'posted'
+           JOIN chart_of_accounts a ON a.id = l.account_id AND a.code = '1100'`,
+        [],
+      );
+      const arBalance = round2(parseFloat(arRow[0].debit) - parseFloat(arRow[0].credit));
+
+      const isBalances = await queryAccountBalances(m, { from: monthStart, to: today }, { excludeClosing: true });
+      const { netIncome } = buildIncomeStatement(isBalances, { from: monthStart, to: today });
+
+      const [overdueRow]: { count: string }[] = await m.query(
+        `SELECT COUNT(*) AS count FROM sales_documents
+          WHERE doc_type = 'billing_note' AND status = 'issued' AND due_date < $1`,
+        [today],
+      );
+
+      return {
+        cashBalance,
+        arBalance,
+        thisMonthNetIncome: netIncome,
+        overdueCount: Number(overdueRow.count),
+      };
+    });
+  }
 
   /** Includes closing entries: after a year is closed its profit sits in retained earnings. */
   trialBalance(user: AuthUser, asOf?: string) {

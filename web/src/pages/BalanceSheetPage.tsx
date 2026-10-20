@@ -14,9 +14,14 @@ export default function BalanceSheetPage() {
       <PageHeader
         title="งบแสดงฐานะการเงิน"
         subtitle={asOf ? `ณ วันที่ ${formatDate(asOf)}` : 'ทุกรายการที่ผ่านรายการแล้ว'}
-        actions={bs && (bs.balanced ? <Badge tone="green">สินทรัพย์ = หนี้สิน + ส่วนของเจ้าของ</Badge> : <Badge tone="red">ยอดไม่ดุล</Badge>)}
+        actions={
+          <div className="flex items-center gap-2">
+            {bs && (bs.balanced ? <Badge tone="green">สินทรัพย์ = หนี้สิน + ส่วนของเจ้าของ</Badge> : <Badge tone="red">ยอดไม่ดุล</Badge>)}
+            <Button variant="secondary" className="print:hidden" onClick={() => window.print()}>พิมพ์ / PDF</Button>
+          </div>
+        }
       />
-      <div className="mb-6 flex flex-wrap items-end gap-3">
+      <div className="mb-6 flex flex-wrap items-end gap-3 print:hidden">
         <Field label="ณ วันที่">
           <Input type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} />
         </Field>

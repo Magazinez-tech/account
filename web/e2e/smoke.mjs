@@ -59,8 +59,8 @@ try {
   await page.getByLabel('รหัสผ่าน').fill('SecurePass123');
   await page.screenshot({ path: `${shots}02-signup.png` });
   await page.getByRole('button', { name: 'สร้างบัญชี' }).click();
-  await page.getByRole('heading', { name: 'สมุดรายวันทั่วไป' }).waitFor();
-  check('signup lands on journal', page.url().endsWith('/journal'));
+  await page.getByRole('heading', { name: 'ภาพรวม' }).waitFor();
+  check('signup lands on dashboard', page.url().endsWith('/dashboard'));
   await page.getByText('บริษัท ทดสอบ UI จำกัด').waitFor();
   check('header shows company name', true);
   check('empty journal state', await seen(page.getByText('ยังไม่มีรายการ')));
@@ -154,7 +154,7 @@ try {
   check('bad password message', true);
   await page.getByLabel('รหัสผ่าน').fill('SecurePass123');
   await page.getByRole('button', { name: 'เข้าสู่ระบบ' }).click();
-  await page.getByRole('heading', { name: 'สมุดรายวันทั่วไป' }).waitFor();
+  await page.getByRole('heading', { name: 'ภาพรวม' }).waitFor();
   check('login works', true);
 
   // Billing: trial -> failed payment -> paid Pro, through whichever gateway the API runs:
@@ -246,9 +246,11 @@ try {
   await page.getByLabel('ยืนยันรหัสผ่าน').fill('ClerkPass123');
   await page.screenshot({ path: `${shots}09-accept-invite.png` });
   await page.getByRole('button', { name: 'เริ่มใช้งาน' }).click();
-  await page.getByText('JV-2').waitFor();
-  check('accepting the invite signs the user in', page.url().endsWith('/journal'));
+  await page.getByRole('heading', { name: 'ภาพรวม' }).waitFor();
+  check('accepting the invite signs the user in', page.url().endsWith('/dashboard'));
   check('User role shown in header', await seen(page.getByText('· User')));
+  await page.getByRole('link', { name: 'สมุดรายวัน' }).click();
+  await page.getByText('JV-2').waitFor();
   check('User sees no void button', await eventually(async () => (await page.getByRole('button', { name: 'ยกเลิกรายการ' }).count()) === 0));
   check('User can still open the entry form', await seen(page.getByRole('button', { name: '+ บันทึกรายการ' })));
   await page.getByRole('link', { name: 'ผังบัญชี' }).click();
@@ -257,8 +259,8 @@ try {
   check('User sees no users menu', await eventually(async () => (await page.getByRole('link', { name: 'ผู้ใช้งาน' }).count()) === 0));
   await page.screenshot({ path: `${shots}10-user-role.png` });
   await page.goto(`${BASE}/users`);
-  await page.getByRole('heading', { name: 'สมุดรายวันทั่วไป' }).waitFor();
-  check('User visiting /users is sent to the journal', page.url().endsWith('/journal'));
+  await page.getByRole('heading', { name: 'ภาพรวม' }).waitFor();
+  check('User visiting /users is sent to the dashboard', page.url().endsWith('/dashboard'));
   await page.goto(link);
   await page.getByText('ลิงก์คำเชิญไม่ถูกต้อง ถูกยกเลิก หรือหมดอายุแล้ว').waitFor();
   check('used invite link shows an error', true);
@@ -297,7 +299,7 @@ try {
   await page.getByLabel('อีเมล').fill('admin@uitest.com');
   await page.getByLabel('รหัสผ่าน').fill('SecurePass123');
   await page.getByRole('button', { name: 'เข้าสู่ระบบ' }).click();
-  await page.getByRole('heading', { name: 'สมุดรายวันทั่วไป' }).waitFor();
+  await page.getByRole('heading', { name: 'ภาพรวม' }).waitFor();
   const lastYear = new Date().getFullYear() - 1;
   await page.getByRole('button', { name: '+ บันทึกรายการ' }).click();
   await page.getByRole('heading', { name: 'บันทึกรายการบัญชี' }).waitFor();
@@ -410,6 +412,22 @@ try {
   check('quotation list links to its billing note', await seen(page.getByRole('link', { name: /^BN-\d{4}-0001$/ })));
   await page.getByRole('link', { name: 'สมุดรายวัน', exact: true }).click();
   check('journal shows the billing note entries', await eventually(async () => (await page.getByText('จากใบวางบิล').count()) === 2));
+
+  // Dashboard (TASK-24)
+  await page.getByRole('link', { name: 'ภาพรวม' }).click();
+  await page.getByRole('heading', { name: 'ภาพรวม' }).waitFor();
+  check('dashboard shows KPI cards', await seen(page.getByText('ลูกหนี้การค้าคงค้าง')));
+  check('dashboard cash balance is non-negative', await seen(page.getByText('เงินสด + เงินฝากธนาคาร')));
+  check('dashboard quick links visible', await seen(page.getByRole('link', { name: 'รายงาน VAT (ภ.พ.30)' })));
+  await page.screenshot({ path: `${shots}20-dashboard.png`, fullPage: true });
+
+  // VAT report (TASK-23)
+  await page.getByRole('link', { name: 'รายงาน VAT' }).click();
+  await page.getByRole('heading', { name: 'รายงานภาษีมูลค่าเพิ่ม (ภ.พ.30)' }).waitFor();
+  check('vat report page loads', true);
+  check('vat report shows output VAT section', await seen(page.getByText('ภาษีขาย — รายการใบวางบิล')));
+  check('vat report shows input VAT section', await seen(page.getByText('ภาษีซื้อ — รายการบัญชี 1300')));
+  await page.screenshot({ path: `${shots}21-vat-report.png`, fullPage: true });
 } catch (err) {
   failures++;
   console.log('FAIL (exception)', err.message.split('\n')[0]);

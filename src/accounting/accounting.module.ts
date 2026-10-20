@@ -3,7 +3,7 @@ import { ApiBadRequestResponse, ApiConflictResponse, ApiTags } from '@nestjs/swa
 import { Authenticated } from '../auth/authenticated.decorator';
 import { AuthUser, CurrentUser } from '../auth/jwt-auth.guard';
 import { Roles } from '../auth/roles.guard';
-import { AsOfQuery, CloseFiscalYearDto, CreateAccountDto, CreateJournalEntryDto, DateRangeQuery } from './accounting.dto';
+import { AsOfQuery, CloseFiscalYearDto, CreateAccountDto, CreateJournalEntryDto, DateRangeQuery, VatMonthQuery } from './accounting.dto';
 import { AccountingService } from './accounting.service';
 import { ClosingService } from './closing.service';
 
@@ -84,6 +84,18 @@ export class ReportsController {
   @Get('balance-sheet')
   balanceSheet(@CurrentUser() user: AuthUser, @Query() query: AsOfQuery) {
     return this.accounting.balanceSheet(user, query.asOf);
+  }
+
+  /** VAT summary for ภ.พ.30: output VAT from billing notes, input VAT from account 1300. */
+  @Get('vat')
+  vatReport(@CurrentUser() user: AuthUser, @Query() query: VatMonthQuery) {
+    return this.accounting.vatReport(user, query.month);
+  }
+
+  /** Dashboard KPIs: cash, AR, this month net income, overdue billing note count. */
+  @Get('dashboard')
+  dashboard(@CurrentUser() user: AuthUser) {
+    return this.accounting.dashboard(user);
   }
 }
 

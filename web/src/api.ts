@@ -185,6 +185,27 @@ export interface SalesDocument {
   paymentJournalEntry?: { id: string; entryNo: number } | null;
 }
 
+export interface VatReport {
+  month: string;
+  outputVat: {
+    taxableAmount: number;
+    vatAmount: number;
+    transactions: { docNo: string; customerName: string; customerTaxId: string | null; docDate: string; taxableAmount: number; vatAmount: number }[];
+  };
+  inputVat: {
+    vatAmount: number;
+    transactions: { entryNo: number; entryDate: string; description: string | null; reference: string | null; vatAmount: number }[];
+  };
+  netVat: number;
+}
+
+export interface DashboardSummary {
+  cashBalance: number;
+  arBalance: number;
+  thisMonthNetIncome: number;
+  overdueCount: number;
+}
+
 export type RoleName = 'Admin' | 'User';
 
 export interface UserRow {
