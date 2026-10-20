@@ -107,7 +107,7 @@ Check 'refresh token rejected as access token -> 401' ($r.Status -eq 401)
 
 Write-Host "`n9.4 Tenant lookup"
 $r = Invoke-Api GET "/api/v1/tenants/slug/test-company-$suffix"
-Check 'GET /tenants/slug/:slug -> trialing tenant' ($r.Status -eq 200 -and $r.Body.id -eq $tenantA -and $r.Body.subscription_status -eq 'trialing')
+Check 'GET /tenants/slug/:slug -> tenant found' ($r.Status -eq 200 -and $r.Body.id -eq $tenantA)
 $r = Invoke-Api GET "/api/v1/tenants/slug/does-not-exist-$suffix"
 Check 'unknown slug -> 404' ($r.Status -eq 404)
 
@@ -545,137 +545,6 @@ if (-not $env:PGPASSWORD) { $env:PGPASSWORD = 'postgres' }
 
 function Invoke-Sql([string]$Sql) {
     & $pgBin -U postgres -h localhost -d accounting_saas_dev -q -c $Sql | Out-Null
-}
-
-Write-Host "`nBilling: plans, checkout, payment gateway"
-$r = Invoke-Api GET '/api/v1/billing/status' $null $tokenUser
-Check 'any member sees billing status: trialing starter' ($r.Status -eq 200 -and $r.Body.status -eq 'trialing' -and $r.Body.readOnly -eq $false -and $r.Body.plan.code -eq 'starter') "(got $($r.Body | ConvertTo-Json -Compress))"
-$r = Invoke-Api GET '/api/v1/billing' $null $tokenUser
-Check 'User cannot open billing overview -> 403' ($r.Status -eq 403)
-$r = Invoke-Api GET '/api/v1/billing' $null $tokenA
-$gateway = $r.Body.gateway.provider
-Write-Host "  (payment gateway: $gateway)"
-$pro = @($r.Body.plans) | Where-Object { $_.code -eq 'pro' }
-Check 'overview lists 3 plans, VAT 7%' ($r.Status -eq 200 -and @($r.Body.plans).Count -eq 3 -and $r.Body.vatRate -eq 7)
-Check 'Pro = 790 + VAT 55.30 = 845.30' ($pro.priceMonthly -eq 790 -and $pro.vatAmount -eq 55.3 -and $pro.total -eq 845.3) "(got $($pro | ConvertTo-Json -Compress))"
-
-# Finishes the pending charge of a checkout the way the active gateway allows: the mock gateway's
-# callback, or (Omise) the test-mode simulate endpoint, which goes through Omise's mark_as_paid/failed.
-function Complete-Payment($Checkout, [string]$Outcome) {
-    if ($gateway -eq 'mock') {
-        Invoke-Api POST "/api/v1/billing/mock/charges/$($Checkout.chargeId)/complete" @{ outcome = $Outcome; failureMessage = 'Card declined' } | Out-Null
-    } else {
-        Invoke-Api POST "/api/v1/billing/invoices/$($Checkout.invoiceId)/simulate" @{ outcome = $Outcome } $tokenA | Out-Null
-    }
-}
-
-$r = Invoke-Api POST '/api/v1/billing/checkout' @{ planCode = 'gold' } $tokenA
-Check 'unknown plan -> 400' ($r.Status -eq 400)
-$r = Invoke-Api POST '/api/v1/billing/checkout' @{ planCode = 'pro' } $tokenUser
-Check 'User cannot check out -> 403' ($r.Status -eq 403)
-
-$r = Invoke-Api POST '/api/v1/billing/checkout' @{ planCode = 'pro' } $tokenA
-$checkout1 = $r.Body
-Check 'checkout Pro -> invoice INV-000001 for 845.30 with a charge id' ($r.Status -eq 201 -and $r.Body.invoiceNo -eq 'INV-000001' -and $r.Body.amount -eq 845.3 -and $r.Body.chargeId) "(got $($r.Body | ConvertTo-Json -Compress))"
-if ($gateway -eq 'mock') {
-    Check 'mock: customer is redirected to the hosted page' ($r.Body.payment.type -eq 'redirect' -and $r.Body.redirectUrl -match '/billing/mock-checkout/mock_chrg_')
-    $r = Invoke-Api GET "/api/v1/billing/mock/charges/$($checkout1.chargeId)"
-    Check 'mock gateway shows the charge amount' ($r.Status -eq 200 -and $r.Body.amount -eq 845.3 -and $r.Body.status -eq 'pending')
-    $r = Invoke-Api GET '/api/v1/billing/mock/charges/mock_chrg_doesnotexist'
-    Check 'unknown charge -> 404' ($r.Status -eq 404)
-} else {
-    Check 'omise: PromptPay QR returned' ($r.Body.payment.type -eq 'qr' -and $r.Body.payment.imageUrl -and $r.Body.chargeId -match '^chrg_')
-    $qr = Invoke-WebRequest -Uri $r.Body.payment.imageUrl -UseBasicParsing
-    Check 'omise: QR image is downloadable' ($qr.StatusCode -eq 200)
-    $r = Invoke-Api GET '/api/v1/billing' $null $tokenA
-    Check 'omise: open invoice keeps its QR for a page reload' ($r.Body.invoices[0].paymentAction.type -eq 'qr')
-    $r = Invoke-Api POST "/api/v1/billing/invoices/$($checkout1.invoiceId)/refresh" $null $tokenA
-    Check 'omise: refresh while unpaid -> still pending' ($r.Status -eq 200 -and $r.Body.paymentStatus -eq 'pending' -and $r.Body.invoiceStatus -eq 'open')
-    # A forged "paid" event: the API re-reads the charge from Omise, which still says pending.
-    $forged = @{ object = 'event'; key = 'charge.complete'; data = @{ object = 'charge'; id = $checkout1.chargeId; status = 'successful' } }
-    $r = Invoke-Api POST '/api/v1/billing/webhooks/omise' $forged
-    Check 'omise: forged webhook does not mark anything paid' ($r.Status -eq 200 -and $r.Body.status -eq 'pending')
-    $r = Invoke-Api POST '/api/v1/billing/webhooks/omise' @{ object = 'event'; key = 'charge.complete'; data = @{ object = 'charge'; id = 'chrg_test_unknown' } }
-    Check 'omise: webhook for an unknown charge is acknowledged and ignored' ($r.Status -eq 200 -and $r.Body.handled -eq $false)
-}
-
-Complete-Payment $checkout1 'failed'
-$r = Invoke-Api GET '/api/v1/billing' $null $tokenA
-Check 'after a declined payment: still trialing, invoice open, payment failed' ($r.Body.status -eq 'trialing' -and $r.Body.invoices[0].status -eq 'open' -and $r.Body.invoices[0].paymentStatus -eq 'failed')
-
-$r = Invoke-Api POST '/api/v1/billing/checkout' @{ planCode = 'pro' } $tokenA
-$checkout2 = $r.Body
-Check 'retry checkout -> INV-000002' ($r.Body.invoiceNo -eq 'INV-000002')
-Complete-Payment $checkout2 'succeeded'
-$r = Invoke-Api GET '/api/v1/billing' $null $tokenA
-Check 'successful payment -> INV-000002 paid' (($r.Body.invoices | Where-Object { $_.invoiceNo -eq 'INV-000002' }).paymentStatus -eq 'succeeded')
-# Providers retry webhooks: settling the same charge again must change nothing.
-if ($gateway -eq 'mock') {
-    $r = Invoke-Api POST "/api/v1/billing/mock/charges/$($checkout2.chargeId)/complete" @{ outcome = 'succeeded' }
-    Check 'repeated webhook is idempotent' ($r.Status -eq 200 -and $r.Body.alreadySettled -eq $true)
-} else {
-    $r = Invoke-Api POST '/api/v1/billing/webhooks/omise' @{ object = 'event'; key = 'charge.complete'; data = @{ object = 'charge'; id = $checkout2.chargeId } }
-    Check 'repeated webhook is idempotent' ($r.Status -eq 200 -and $r.Body.status -eq 'succeeded')
-    $r = Invoke-Api POST "/api/v1/billing/invoices/$($checkout2.invoiceId)/simulate" @{ outcome = 'succeeded' } $tokenA
-    Check 'omise: simulating an already paid charge -> 409' ($r.Status -eq 409)
-}
-
-$r = Invoke-Api GET '/api/v1/billing' $null $tokenA
-$periodEnd = [datetime]$r.Body.currentPeriodEnd
-Check 'subscription active on Pro' ($r.Body.status -eq 'active' -and $r.Body.plan.code -eq 'pro' -and $r.Body.readOnly -eq $false)
-Check 'period ends in ~1 month' (($periodEnd - (Get-Date)).TotalDays -gt 27 -and ($periodEnd - (Get-Date)).TotalDays -lt 32) "(got $periodEnd)"
-Check 'INV-000002 paid, INV-000001 voided' (($r.Body.invoices | Where-Object { $_.invoiceNo -eq 'INV-000002' }).status -eq 'paid' -and ($r.Body.invoices | Where-Object { $_.invoiceNo -eq 'INV-000001' }).status -eq 'void')
-
-$r = Invoke-Api POST '/api/v1/billing/checkout' @{ planCode = 'pro' } $tokenA
-Complete-Payment $r.Body 'succeeded'
-$r = Invoke-Api GET '/api/v1/billing/status' $null $tokenA
-Check 'paying early extends from the current period end' ([math]::Abs((([datetime]$r.Body.currentPeriodEnd) - $periodEnd.AddMonths(1)).TotalDays) -lt 2) "(got $($r.Body.currentPeriodEnd), expected ~$($periodEnd.AddMonths(1)))"
-
-$r = Invoke-Api POST '/api/v1/billing/cancel' $null $tokenA
-Check 'cancel -> active until period end' ($r.Status -eq 200 -and $r.Body.status -eq 'active' -and $r.Body.cancelAtPeriodEnd -eq $true)
-$r = Invoke-Api POST '/api/v1/billing/resume' $null $tokenA
-Check 'resume -> renewal back on' ($r.Status -eq 200 -and $r.Body.cancelAtPeriodEnd -eq $false)
-
-Write-Host "`nBilling: plan limits and read-only mode"
-# Tenant B is on the Starter trial (3 users): 1 admin + 2 open invitations fill it.
-$r = Invoke-Api POST '/api/v1/invitations' @{ email = 'b1@another.com'; fullName = 'B One'; role = 'User' } $tokenB
-$r = Invoke-Api POST '/api/v1/invitations' @{ email = 'b2@another.com'; fullName = 'B Two'; role = 'User' } $tokenB
-Check 'Starter: invites up to 3 seats' ($r.Status -eq 201)
-$r = Invoke-Api POST '/api/v1/invitations' @{ email = 'b3@another.com'; fullName = 'B Three'; role = 'User' } $tokenB
-Check 'Starter: 4th seat -> 403 plan limit' ($r.Status -eq 403 -and $r.Body.message -eq 'Plan user limit reached') "(got $($r.Status): $($r.Body.message))"
-
-if ($pgBin) {
-    Invoke-Sql "UPDATE subscriptions SET trial_ends_at = now() - interval '1 day' WHERE tenant_id = '$tenantB'"
-    $r = Invoke-Api GET '/api/v1/billing/status' $null $tokenB
-    Check 'trial over -> expired, read-only' ($r.Body.status -eq 'expired' -and $r.Body.readOnly -eq $true)
-    $r = Invoke-Api GET '/api/v1/accounts' $null $tokenB
-    Check 'read-only: reads still work' ($r.Status -eq 200)
-    $r = Invoke-Api POST '/api/v1/accounts' @{ code = '1099'; name = 'Blocked'; type = 'asset' } $tokenB
-    Check 'read-only: writes -> 402' ($r.Status -eq 402 -and $r.Body.message -eq 'Subscription inactive') "(got $($r.Status))"
-
-    Invoke-Sql "UPDATE subscriptions SET current_period_end = now() - interval '1 day' WHERE tenant_id = '$tenantA'"
-    $r = Invoke-Api GET '/api/v1/billing/status' $null $tokenA
-    Check 'unpaid period over -> past_due, read-only' ($r.Body.status -eq 'past_due' -and $r.Body.readOnly -eq $true)
-    $r = Invoke-Api POST '/api/v1/journal-entries' @{
-        entryDate = '2026-09-20'; lines = @(@{ accountId = $acc['1000']; debit = 10 }, @{ accountId = $acc['4000']; credit = 10 })
-    } $tokenA
-    Check 'past_due: posting an entry -> 402' ($r.Status -eq 402)
-    $r = Invoke-Api POST '/api/v1/billing/checkout' @{ planCode = 'starter' } $tokenA
-    Check 'past_due: checkout still allowed' ($r.Status -eq 201) "(got $($r.Status))"
-    Complete-Payment $r.Body 'succeeded'
-    $r = Invoke-Api GET '/api/v1/billing/status' $null $tokenA
-    $days = (([datetime]$r.Body.currentPeriodEnd) - (Get-Date)).TotalDays
-    Check 'paying after lapse: active on Starter, new period from today' ($r.Body.status -eq 'active' -and $r.Body.plan.code -eq 'starter' -and $days -gt 27 -and $days -lt 32) "(got $($r.Body | ConvertTo-Json -Compress))"
-    $r = Invoke-Api POST '/api/v1/journal-entries' @{
-        entryDate = '2026-09-20'; lines = @(@{ accountId = $acc['1000']; debit = 10 }, @{ accountId = $acc['4000']; credit = 10 })
-    } $tokenA
-    Check 'writes work again after paying' ($r.Status -eq 201)
-
-    Invoke-Sql "UPDATE subscriptions SET canceled_at = now(), current_period_end = now() - interval '1 minute' WHERE tenant_id = '$tenantA'"
-    $r = Invoke-Api GET '/api/v1/billing/status' $null $tokenA
-    Check 'canceled and period over -> canceled, read-only' ($r.Body.status -eq 'canceled' -and $r.Body.readOnly -eq $true)
-} else {
-    Write-Host '  [SKIP] psql not found' -ForegroundColor Yellow
 }
 
 Write-Host "`nLogin lockout (per account)"

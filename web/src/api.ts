@@ -101,9 +101,7 @@ export interface TenantDetail {
   id: string;
   name: string;
   slug: string;
-  subscriptionStatus: string;
   company: Company | null;
-  subscription: { status: string; trialEndsAt: string | null } | null;
 }
 
 export interface Company {
@@ -233,43 +231,6 @@ export interface InvitePreview {
   fullName: string;
   companyName: string;
   tenantSlug: string;
-}
-
-export type SubscriptionStatus = 'trialing' | 'active' | 'past_due' | 'canceled' | 'expired';
-
-export interface BillingStatus {
-  status: SubscriptionStatus;
-  /** Trial over or unpaid: the API refuses writes (402) except billing. */
-  readOnly: boolean;
-  plan: { code: string; name: string; maxUsers: number | null } | null;
-  trialEndsAt: string | null;
-  currentPeriodEnd: string | null;
-  cancelAtPeriodEnd: boolean;
-}
-
-export type PaymentAction = { type: 'redirect'; url: string } | { type: 'qr'; imageUrl: string; expiresAt: string | null };
-
-export interface BillingOverview extends BillingStatus {
-  vatRate: number;
-  /** canSimulate: test-mode gateway, payments can be completed without a real bank app. */
-  gateway: { provider: string; canSimulate: boolean };
-  plans: { code: string; name: string; maxUsers: number | null; priceMonthly: number; vatAmount: number; total: number }[];
-  invoices: {
-    id: string;
-    invoiceNo: string;
-    description: string | null;
-    subtotal: number;
-    vatAmount: number;
-    amount: number;
-    status: 'draft' | 'open' | 'paid' | 'void';
-    paymentStatus: 'pending' | 'succeeded' | 'failed' | null;
-    /** How to pay this open invoice while its payment is pending (e.g. the PromptPay QR). */
-    paymentAction: { type: 'redirect' | 'qr'; url: string; expiresAt: string | null } | null;
-    issuedAt: string | null;
-    paidAt: string | null;
-    periodStart: string | null;
-    periodEnd: string | null;
-  }[];
 }
 
 export interface Tokens {

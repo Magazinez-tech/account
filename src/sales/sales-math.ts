@@ -1,6 +1,10 @@
 import { BadRequestException } from '@nestjs/common';
-import { priceWithVat } from '../billing/billing-math';
 import { toSatang } from '../common/money';
+
+function priceWithVat(amountSatang: number, vatRate: number) {
+  const vat = Math.round(amountSatang * vatRate / 100);
+  return { vat, total: amountSatang + vat };
+}
 import { QuotationStatus, SalesDocType } from '../database/entities';
 
 /** Largest document total accepted, in satang (9,999,999,999.99 baht): keeps every sum exact in a JS number. */
