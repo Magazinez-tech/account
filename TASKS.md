@@ -28,6 +28,8 @@ Legend: ✅ done · ⏳ in progress · ⬜ todo
 | TASK-20 | Quotations (ใบเสนอราคา) | ✅ | `QT-YYYY-####` per year; lines (qty × price, half-up to the satang), discount before VAT, VAT on/off; draft → sent → accepted/rejected (sent → draft to revise), Admin void; customer details copied onto the document; issuer = the user who created it; A4 print / PDF with the amount in Thai words |
 | TASK-21 | Billing notes (ใบวางบิล) | ✅ | `BN-YYYY-####`; from an accepted quotation (once) or from scratch; due date = date + credit days; issue posts Dr 1100 / Cr revenue / Cr 2100, payment posts Dr cash or bank / Cr 1100 (journal kind `sales`, reversed only by voiding the note; period lock applies); overdue shown from the due date. Unit 110/110, web 48/48, smoke 208/208, E2E passing |
 
+| TASK-22 | ขยายผังบัญชี default จาก 19 → 51 บัญชี (มาตรฐาน TFRS for NPAEs) | ✅ | เพิ่ม 32 บัญชีใหม่: ค่าเสื่อมราคาสะสม (อุปกรณ์/คอมพิวเตอร์/ยานพาหนะ/อาคาร), เงินกู้ยืมระยะสั้น/ยาว, ภาษีเงินได้นิติบุคคล, ค่าใช้จ่ายค้างจ่าย, ภาษีถูกหัก ณ ที่จ่าย, สำรองตามกฎหมาย ฯลฯ; smoke + E2E อัปเดตแล้ว |
+
 ## Backlog
 
 | Tag | Task | Status | Notes |

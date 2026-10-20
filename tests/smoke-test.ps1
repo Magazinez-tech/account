@@ -133,7 +133,7 @@ Check 'tenant B reads tenant A -> 403' ($r.Status -eq 403)
 
 Write-Host "`nAccounting: chart of accounts"
 $r = Invoke-Api GET '/api/v1/accounts' $null $tokenA
-Check 'default chart seeded (19 accounts)' ($r.Status -eq 200 -and @($r.Body).Count -eq 19)
+Check 'default chart seeded (51 accounts)' ($r.Status -eq 200 -and @($r.Body).Count -eq 51)
 $acc = @{}; foreach ($a in $r.Body) { $acc[$a.code] = $a.id }
 
 $r = Invoke-Api POST '/api/v1/accounts' @{ code = '1020'; name = 'Savings account'; type = 'asset' } $tokenA

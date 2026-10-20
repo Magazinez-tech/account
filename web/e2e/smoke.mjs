@@ -67,22 +67,22 @@ try {
 
   // Chart of accounts
   await page.getByRole('link', { name: 'ผังบัญชี' }).click();
-  await page.getByText('19 บัญชี').waitFor();
-  check('chart of accounts shows 19 seeded accounts', true);
+  await page.getByText('51 บัญชี').waitFor();
+  check('chart of accounts shows 51 seeded accounts', true);
   await page.getByRole('button', { name: '+ เพิ่มบัญชี' }).click();
-  await page.getByLabel('รหัสบัญชี').fill('1020');
+  await page.getByLabel('รหัสบัญชี').fill('1030');
   await page.getByLabel('ชื่อบัญชี').fill('เงินฝากออมทรัพย์');
   await page.getByLabel('บัญชีแม่ (ไม่บังคับ)').selectOption({ label: '1010 เงินฝากธนาคาร' });
   await page.getByRole('button', { name: 'บันทึก', exact: true }).click();
-  await page.getByText('เพิ่มบัญชี 1020 เงินฝากออมทรัพย์ แล้ว').waitFor();
-  check('add account shows success + 20 accounts', await seen(page.getByText('20 บัญชี')));
+  await page.getByText('เพิ่มบัญชี 1030 เงินฝากออมทรัพย์ แล้ว').waitFor();
+  check('add account shows success + 52 accounts', await seen(page.getByText('52 บัญชี')));
   check('child account shows parent', await seen(page.getByText('ภายใต้ 1010')));
   // Duplicate code -> 409 message
   await page.getByRole('button', { name: '+ เพิ่มบัญชี' }).click();
-  await page.getByLabel('รหัสบัญชี').fill('1020');
+  await page.getByLabel('รหัสบัญชี').fill('1030');
   await page.getByLabel('ชื่อบัญชี').fill('ซ้ำ');
   await page.getByRole('button', { name: 'บันทึก', exact: true }).click();
-  await page.getByText('Account code 1020 already exists').waitFor();
+  await page.getByText('Account code 1030 already exists').waitFor();
   check('duplicate account code shows server error', true);
   await page.screenshot({ path: `${shots}03-accounts.png`, fullPage: true });
   await page.getByRole('button', { name: 'ยกเลิก' }).click();
@@ -205,7 +205,7 @@ try {
   // Expired access token -> refresh token keeps the session
   await page.evaluate(() => localStorage.setItem('acc.accessToken', 'garbage'));
   await page.getByRole('link', { name: 'ผังบัญชี' }).click();
-  await page.getByText('20 บัญชี').waitFor();
+  await page.getByText('52 บัญชี').waitFor();
   check('bad access token recovered via refresh', (await page.evaluate(() => localStorage.getItem('acc.accessToken'))) !== 'garbage');
 
   // Post an entry as Admin so the clerk has a posted (voidable) entry to look at.
@@ -252,7 +252,7 @@ try {
   check('User sees no void button', await eventually(async () => (await page.getByRole('button', { name: 'ยกเลิกรายการ' }).count()) === 0));
   check('User can still open the entry form', await seen(page.getByRole('button', { name: '+ บันทึกรายการ' })));
   await page.getByRole('link', { name: 'ผังบัญชี' }).click();
-  await page.getByText('20 บัญชี').waitFor();
+  await page.getByText('52 บัญชี').waitFor();
   check('User sees no add-account button', await eventually(async () => (await page.getByRole('button', { name: '+ เพิ่มบัญชี' }).count()) === 0));
   check('User sees no users menu', await eventually(async () => (await page.getByRole('link', { name: 'ผู้ใช้งาน' }).count()) === 0));
   await page.screenshot({ path: `${shots}10-user-role.png` });
