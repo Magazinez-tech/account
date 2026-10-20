@@ -136,9 +136,9 @@ $r = Invoke-Api GET '/api/v1/accounts' $null $tokenA
 Check 'default chart seeded (51 accounts)' ($r.Status -eq 200 -and @($r.Body).Count -eq 51)
 $acc = @{}; foreach ($a in $r.Body) { $acc[$a.code] = $a.id }
 
-$r = Invoke-Api POST '/api/v1/accounts' @{ code = '1020'; name = 'Savings account'; type = 'asset' } $tokenA
+$r = Invoke-Api POST '/api/v1/accounts' @{ code = '1035'; name = 'Savings account'; type = 'asset' } $tokenA
 Check 'create account -> 201' ($r.Status -eq 201)
-$r = Invoke-Api POST '/api/v1/accounts' @{ code = '1020'; name = 'Dup'; type = 'asset' } $tokenA
+$r = Invoke-Api POST '/api/v1/accounts' @{ code = '1035'; name = 'Dup'; type = 'asset' } $tokenA
 Check 'duplicate account code -> 409' ($r.Status -eq 409)
 
 Write-Host "`nAccounting: journal entries"
