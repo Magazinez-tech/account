@@ -79,9 +79,25 @@ export class UsersService {
     }));
   }
 
-  // Seat check removed (no subscription plans in desktop version).
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  private async assertSeatAvailable(_m: EntityManager, _countInvitations: boolean) {}
+  /**
+   * Plan seat limit: active users, plus open invitations when inviting (an accepted invite takes a
+   * seat). Plans with max_users NULL are unlimited.
+   */
+  private async assertSeatAvailable(m: EntityManager, countInvitations: boolean) {
+    const [plan]: { max_users: number | null }[] = await m.query(
+      `SELECT p.max_users FROM subscriptions s JOIN subscription_plans p ON p.id = s.plan_id
+        ORDER BY s.created_at DESC LIMIT 1`,
+    );
+    if (!plan || plan.max_users === null) return;
+    const [{ used }] = await m.query(
+      `SELECT (SELECT count(*) FROM users WHERE is_active)
+            + CASE WHEN $1 THEN (SELECT count(*) FROM user_invitations
+                                  WHERE accepted_at IS NULL AND revoked_at IS NULL AND expires_at > now())
+                   ELSE 0 END AS used`,
+      [countInvitations],
+    );
+    if (Number(used) >= plan.max_users) throw new ForbiddenException('Plan user limit reached');
+  }
 
   private async roleByName(m: EntityManager, name: RoleName) {
     const role = await m.getRepository(Role).findOneBy({ name });

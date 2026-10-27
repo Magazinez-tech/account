@@ -11,6 +11,7 @@ import { dataSourceOptions } from './database/data-source';
 import { DatabaseModule } from './database/tenant-db.service';
 import { TenantsModule } from './tenants/tenants.module';
 import { UsersModule } from './users/users.module';
+import { BillingModule } from './billing/billing.module';
 import { SalesModule } from './sales/sales.module';
 
 @ApiTags('Health')
@@ -52,6 +53,7 @@ export class HealthController {
     TenantsModule,
     AccountingModule,
     UsersModule,
+    BillingModule,
     SalesModule,
   ],
   controllers: [HealthController],
